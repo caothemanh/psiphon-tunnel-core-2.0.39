@@ -92,6 +92,22 @@ jobs:
 
           echo "gomobile: $($GOPATH/bin/gomobile version)"
 
+
+      # -------------------------------------------------------
+      # 5b. Patch JNI symbol names: Java_go_Seq_ → Java_go_Seq1_
+      #     để khớp với class go.Seq1 (tránh conflict với libxray go.Seq)
+      # -------------------------------------------------------
+      - name: Patch Seq → Seq1 JNI symbols
+        run: |
+          GOMOBILE_SRC=$GOPATH/src/golang.org/x/mobile
+          sed -i 's/Java_go_Seq_/Java_go_Seq1_/g' \
+            $GOMOBILE_SRC/bind/java/seq_android.c.support \
+            $GOMOBILE_SRC/bind/java/context_android.c
+          echo "✅ Patched JNI symbols:"
+          grep "Java_go_Seq1_" \
+            $GOMOBILE_SRC/bind/java/seq_android.c.support \
+            $GOMOBILE_SRC/bind/java/context_android.c
+
       # -------------------------------------------------------
       # 6. gomobile init (download Android prebuilt support)
       # -------------------------------------------------------
