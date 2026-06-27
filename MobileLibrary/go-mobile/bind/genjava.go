@@ -380,6 +380,9 @@ func (g *JavaGen) isConsSigSupported(t types.Type) bool {
 // the type name clashes with the package class name, an underscore is
 // appended.
 func (g *JavaGen) javaTypeName(n string) string {
+	if n == "error" {
+		return "error1"
+	}
 	if n == JavaClassName(g.Pkg) {
 		return n + "_"
 	}
