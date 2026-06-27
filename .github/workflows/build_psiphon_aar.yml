@@ -1,0 +1,118 @@
+name: Build Psiphon Android AAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_tags:
+        description: 'Go build tags (optional, e.g. PSIPHON_DISABLE_INPROXY)'
+        required: false
+        default: ''
+
+jobs:
+  build_aar:
+    runs-on: ubuntu-latest
+
+    env:
+      GOVERSION: "1.26.3"
+      GOPATH: ${{ github.workspace }}/go
+      GO111MODULE: "off"
+      CGO_ENABLED: "1"
+      ANDROID_PLATFORM_VERSION: "30"
+      ANDROID_NDK_VERSION: "23.1.7779620"
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/android-sdk
+      ANDROID_HOME: ${{ github.workspace }}/android-sdk
+      ANDROID_NDK_HOME: ${{ github.workspace }}/android-sdk/ndk/23.1.7779620
+
+    steps:
+      # -------------------------------------------------------
+      # 1. Checkout source vào đúng GOPATH
+      # -------------------------------------------------------
+      - name: Checkout psiphon-tunnel-core
+        uses: actions/checkout@v4
+        with:
+          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+
+      # -------------------------------------------------------
+      # 2. Cài Go đúng version
+      # -------------------------------------------------------
+      - name: Install Go ${{ env.GOVERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GOVERSION }}
+          cache: false
+
+      # -------------------------------------------------------
+      # 3. Cài JDK 8 (javac -source 1.8 -target 1.8)
+      # -------------------------------------------------------
+      - name: Install JDK 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      # -------------------------------------------------------
+      # 4. Cài Android SDK + NDK
+      # -------------------------------------------------------
+      - name: Install Android SDK command-line tools
+        run: |
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
+          curl -L https://dl.google.com/android/repository/commandlinetools-linux-8092744_latest.zip \
+            -o /tmp/cmdline-tools.zip
+          cd $ANDROID_SDK_ROOT/cmdline-tools
+          unzip -q /tmp/cmdline-tools.zip
+          mv cmdline-tools latest
+
+      - name: Accept licenses and install platform + NDK
+        run: |
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
+          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-${ANDROID_PLATFORM_VERSION}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      # -------------------------------------------------------
+      # 5. Install gomobile từ local source (có patch Seq1)
+      #    KHÔNG dùng go install @latest - phải dùng source trong repo
+      # -------------------------------------------------------
+      - name: Install gomobile from local source
+        run: |
+          GOMOBILE_SRC=$GOPATH/src/golang.org/x/mobile
+
+          # Copy go-mobile từ repo vào GOPATH
+          mkdir -p $GOMOBILE_SRC
+          cp -r go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/MobileLibrary/go-mobile/. \
+            $GOMOBILE_SRC/
+
+          # Patch init.go: thay gobind@latest -> gobind (GOPATH mode không dùng @latest)
+          sed -i 's|golang.org/x/mobile/cmd/gobind@latest|golang.org/x/mobile/cmd/gobind|g' \
+            $GOMOBILE_SRC/cmd/gomobile/init.go
+
+          # Build và install gomobile + gobind
+          go install golang.org/x/mobile/cmd/gomobile
+          go install golang.org/x/mobile/cmd/gobind
+
+          echo "gomobile: $($GOPATH/bin/gomobile version)"
+
+      # -------------------------------------------------------
+      # 6. gomobile init (download Android prebuilt support)
+      # -------------------------------------------------------
+      - name: gomobile init
+        run: |
+          $GOPATH/bin/gomobile init -v
+
+      # -------------------------------------------------------
+      # 7. Build AAR
+      # -------------------------------------------------------
+      - name: Build ca.psiphon.aar
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/MobileLibrary/Android
+          bash make.bash "${{ github.event.inputs.build_tags }}"
+
+      # -------------------------------------------------------
+      # 8. Upload artifact
+      # -------------------------------------------------------
+      - name: Upload AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: ca.psiphon.aar
+          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/MobileLibrary/Android/ca.psiphon.aar
+          retention-days: 7
