@@ -1577,6 +1577,16 @@ public class PsiphonTunnel {
     // JNI symbols: Java_ca_psiphon_PsiphonTunnel_runTun2Socks, etc.
     // -------------------------------------------------------------------------
 
+    // Called by libpos.so native code via JNI to log tun2socks messages
+    public static void logTun2Socks(String level, String channel, String msg) {
+        String logMsg = "tun2socks: " + level + "(" + channel + "): " + msg;
+        if (INSTANCE != null) {
+            INSTANCE.mHostService.onDiagnosticMessage(logMsg);
+        } else {
+            android.util.Log.d("PsiphonTunnel", logMsg);
+        }
+    }
+
     static {
         System.loadLibrary("pos");
     }
