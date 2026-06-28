@@ -1592,13 +1592,13 @@ public class PsiphonTunnel {
     }
 
     public static native int runTun2Socks(
-        android.os.ParcelFileDescriptor vpnInterfaceFd,
+        int vpnInterfaceFileDescriptor,
         int vpnInterfaceMTU,
-        String vpnIpGateway,
+        String vpnIpAddress,
         String vpnNetMask,
         String socksServerAddress,
         String udpgwServerAddress,
-        boolean udpgwTransparentDNS
+        int udpgwTransparentDNS
     );
 
     public static native int terminateTun2Socks();
