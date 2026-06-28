@@ -327,7 +327,7 @@ Java_go_Seq1_init(JNIEnv *env, jclass clazz) {
 	}
 
 	seq_class = (*env)->NewGlobalRef(env, clazz);
-	seq_getRef = (*env)->GetStaticMethodID(env, seq_class, "getRef", "(I)Lgo/Seq$Ref;");
+	seq_getRef = (*env)->GetStaticMethodID(env, seq_class, "getRef", "(I)Lgo/Seq1$Ref;");
 	if (seq_getRef == NULL) {
 		LOG_FATAL("failed to find method Seq.getRef");
 	}
@@ -343,11 +343,11 @@ Java_go_Seq1_init(JNIEnv *env, jclass clazz) {
 	if (seq_incRef == NULL) {
 		LOG_FATAL("failed to find method Seq.incRef");
 	}
-	seq_incGoObjectRef = (*env)->GetStaticMethodID(env, seq_class, "incGoObjectRef", "(Lgo/Seq$GoObject;)I");
+	seq_incGoObjectRef = (*env)->GetStaticMethodID(env, seq_class, "incGoObjectRef", "(Lgo/Seq1$GoObject;)I");
 	if (seq_incGoObjectRef == NULL) {
 		LOG_FATAL("failed to find method Seq.incGoObjectRef");
 	}
-	jclass ref_class = (*env)->FindClass(env, "go/Seq$Ref");
+	jclass ref_class = (*env)->FindClass(env, "go/Seq1$Ref");
 	if (ref_class == NULL) {
 		LOG_FATAL("failed to find the Seq.Ref class");
 	}
@@ -359,7 +359,7 @@ Java_go_Seq1_init(JNIEnv *env, jclass clazz) {
 }
 
 JNIEXPORT void JNICALL
-Java_go_Seq_destroyRef(JNIEnv *env, jclass clazz, jint refnum) {
+Java_go_Seq1_destroyRef(JNIEnv *env, jclass clazz, jint refnum) {
 	DestroyRef(refnum);
 }
 

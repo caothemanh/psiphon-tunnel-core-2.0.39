@@ -1571,4 +1571,30 @@ public class PsiphonTunnel {
             void onChanged();
         }
     }
+
+    // -------------------------------------------------------------------------
+    // tun2socks integration (libpos.so)
+    // JNI symbols: Java_ca_psiphon_PsiphonTunnel_runTun2Socks, etc.
+    // -------------------------------------------------------------------------
+
+    static {
+        System.loadLibrary("pos");
+    }
+
+    public static native int runTun2Socks(
+        android.os.ParcelFileDescriptor vpnInterfaceFd,
+        int vpnInterfaceMTU,
+        String vpnIpGateway,
+        String vpnNetMask,
+        String socksServerAddress,
+        String udpgwServerAddress,
+        boolean udpgwTransparentDNS
+    );
+
+    public static native int terminateTun2Socks();
+
+    public static native int enableUdpGwKeepalive();
+
+    public static native int disableUdpGwKeepalive();
+
 }
