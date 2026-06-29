@@ -78,6 +78,20 @@ fi
 cd -
 cd build-tmp/psi
 echo -e "-keep class psi.** { *; }\n-keep class ca.psiphon.** { *; }\n"  >> proguard.txt
+
+# Copy prebuilt libpos.so (tun2socks) vào từng ABI có sẵn trong jni/
+LIBPOS_SRC="$OLDPWD/PsiphonTunnel/jni"
+for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+  LIBPOS="$LIBPOS_SRC/$ABI/libpos.so"
+  if [ -f "$LIBPOS" ]; then
+    mkdir -p "jni/$ABI"
+    cp "$LIBPOS" "jni/$ABI/libpos.so"
+    echo "Copied libpos.so -> jni/$ABI/"
+  else
+    echo "Warning: libpos.so not found for $ABI, skipping"
+  fi
+done
+
 rm -f ../../ca.psiphon.aar
 zip -r ../../ca.psiphon.aar ./
 cd -
