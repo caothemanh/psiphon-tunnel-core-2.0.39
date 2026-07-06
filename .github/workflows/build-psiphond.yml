@@ -1,0 +1,134 @@
+name: Build psiphond Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_psiphond:
+    runs-on: ubuntu-latest
+
+    env:
+      GOVERSION: "1.26.3"
+      GOPATH: ${{ github.workspace }}/go
+      GO111MODULE: "off"
+      CGO_ENABLED: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GOVERSION }}
+          cache: false
+
+      - name: Patch config.go - allow FRONTED-MEEK-HTTP-OSSH standalone
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          python3 << 'PYEOF'
+          content = open('psiphon/server/config.go').read()
+          old = (
+              '\t\tif protocol.TunnelProtocolUsesFrontedMeekNonHTTPS(tunnelProtocol) {\n'
+              '\t\t\trequiredTunnelProtocol := protocol.TUNNEL_PROTOCOL_FRONTED_MEEK\n'
+              '\t\t\tif protocol.TunnelProtocolUsesInproxy(tunnelProtocol) {\n'
+              '\t\t\t\trequiredTunnelProtocol = protocol.TunnelProtocolPlusInproxyWebRTC(\n'
+              '\t\t\t\t\trequiredTunnelProtocol)\n'
+              '\t\t\t}\n'
+              '\t\t\t_, ok := config.TunnelProtocolPorts[requiredTunnelProtocol]\n'
+              '\t\t\tif !ok {\n'
+              '\t\t\t\treturn nil, errors.Tracef(\n'
+              '\t\t\t\t\t"Tunnel protocol %s requires %s to be enabled",\n'
+              '\t\t\t\t\ttunnelProtocol,\n'
+              '\t\t\t\t\trequiredTunnelProtocol)\n'
+              '\t\t\t}\n'
+              '\t\t}'
+          )
+          new = '\t\t// FRONTED-MEEK-HTTP-OSSH standalone allowed'
+          if old in content:
+              content = content.replace(old, new)
+              open('psiphon/server/config.go', 'w').write(content)
+              print('Patched config.go successfully')
+          else:
+              print('config.go Pattern not found!')
+              idx = content.find('TunnelProtocolUsesFrontedMeekNonHTTPS')
+              print(repr(content[idx-10:idx+500]))
+          PYEOF
+
+      - name: Patch tunnelServer.go - allow FRONTED-MEEK-HTTP-OSSH listener
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          python3 << 'PYEOF'
+          content = open('psiphon/server/tunnelServer.go').read()
+          old = (
+              '\t\tif protocol.TunnelProtocolUsesFrontedMeekNonHTTPS(tunnelProtocol) {\n'
+              '\n'
+              '\t\t\t// For FRONTED-MEEK-QUIC, no listener implemented; for\n'
+              '\t\t\t// FRONTED-MEEK-HTTP, no listener is run. The edge-to-server hop\n'
+              '\t\t\t// uses HTTPS and the client tunnel protocol is distinguished\n'
+              '\t\t\t// using protocol.MeekCookieData.ClientTunnelProtocol.\n'
+              '\t\t\tcontinue\n'
+              '\n'
+              '\t\t} else if protocol.TunnelProtocolUsesQUIC(tunnelProtocol) {'
+          )
+          new = (
+              '\t\tif protocol.TunnelProtocolUsesFrontedMeekQUIC(tunnelProtocol) {\n'
+              '\n'
+              '\t\t\t// For FRONTED-MEEK-QUIC, no listener implemented.\n'
+              '\t\t\tcontinue\n'
+              '\n'
+              '\t\t} else if protocol.TunnelProtocolUsesQUIC(tunnelProtocol) {'
+          )
+          if old in content:
+              content = content.replace(old, new)
+              open('psiphon/server/tunnelServer.go', 'w').write(content)
+              print('Patched tunnelServer.go successfully')
+          else:
+              print('tunnelServer.go Pattern not found!')
+              idx = content.find('TunnelProtocolUsesFrontedMeekNonHTTPS')
+              print(repr(content[idx-10:idx+500]))
+          PYEOF
+
+      - name: Patch hostConfig_linux.go - allow FRONTED-MEEK-HTTP-OSSH rate limit
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          python3 << 'PYEOF'
+          content = open('psiphon/server/hostConfig_linux.go').read()
+          old = (
+              '\t\t\t\t// Assumes all FRONTED-MEEK is HTTPS over TCP between the edge\n'
+              '\t\t\t\t// and Psiphon server.\n'
+              '\t\t\t\tif protocol.TunnelProtocolUsesFrontedMeekNonHTTPS(tunnelProtocol) {\n'
+              '\t\t\t\t\tcontinue\n'
+              '\t\t\t\t}\n'
+          )
+          new = (
+              '\t\t\t\t// Assumes all FRONTED-MEEK is HTTPS over TCP between the edge\n'
+              '\t\t\t\t// and Psiphon server.\n'
+              '\t\t\t\tif protocol.TunnelProtocolUsesFrontedMeekQUIC(tunnelProtocol) {\n'
+              '\t\t\t\t\tcontinue\n'
+              '\t\t\t\t}\n'
+          )
+          if old in content:
+              content = content.replace(old, new)
+              open('psiphon/server/hostConfig_linux.go', 'w').write(content)
+              print('Patched hostConfig_linux.go successfully')
+          else:
+              print('hostConfig_linux.go Pattern not found!')
+              idx = content.find('TunnelProtocolUsesFrontedMeekNonHTTPS')
+              print(repr(content[idx-10:idx+300]))
+          PYEOF
+
+      - name: Build psiphond
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server
+          GOOS=linux GOARCH=amd64 go build -o psiphond .
+          ls -lh psiphond
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: psiphond-linux-amd64
+          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server/psiphond
+          retention-days: 7
