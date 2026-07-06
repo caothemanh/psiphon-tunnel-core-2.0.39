@@ -283,9 +283,9 @@ public class PsiphonTunnel {
     }
 
     // Toggle packet tunnel mode traffic dropping.
-    public synchronized void dropPacketTunnelTraffic(boolean drop) {
-        Psi.dropPacketTunnelTraffic(drop);
-    }
+  /*  public synchronized void dropPacketTunnelTraffic(boolean drop) {
+        //Psi.dropPacketTunnelTraffic(drop);
+    }*/
 
     // Notify Psiphon that the host app has resumed from background.
     public synchronized void appResumed() {
