@@ -70,6 +70,8 @@ type ServerEntry struct {
 	FrontingProviderID                  string   `json:"frontingProviderID,omitempty"`
 	TlsOSSHPort                         int      `json:"tlsOSSHPort,omitempty"`
 	MeekServerPort                      int      `json:"meekServerPort,omitempty"`
+	WebSocketOSSHPort                   int      `json:"webSocketOSSHPort,omitempty"`
+	WebSocketTLSOSSHPort                int      `json:"webSocketTLSOSSHPort,omitempty"`
 	MeekCookieEncryptionPublicKey       string   `json:"meekCookieEncryptionPublicKey,omitempty"`
 	MeekObfuscatedKey                   string   `json:"meekObfuscatedKey,omitempty"`
 	MeekFrontingHost                    string   `json:"meekFrontingHost,omitempty"`
@@ -799,6 +801,24 @@ func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, e
 			TUNNEL_PROTOCOL_UNFRONTED_MEEK_SESSION_TICKET,
 			TUNNEL_PROTOCOL_UNFRONTED_MEEK:
 			return serverEntry.MeekServerPort, nil
+
+		case TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH:
+			return serverEntry.WebSocketOSSHPort, nil
+
+		case TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH:
+			return serverEntry.WebSocketTLSOSSHPort, nil
+
+		case TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH:
+			// Fixed port, same as FRONTED-MEEK-HTTP-OSSH: the CDN edge
+			// terminates plain HTTP on 80 and relays to the origin.
+			return 80, nil
+
+		case TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH:
+			// Fixed port, same as FRONTED-MEEK-OSSH: the CDN edge
+			// terminates TLS on 443 (overridable via
+			// SetFrontedMeekHTTPDialPortNumber for test servers, since
+			// both fronted variants share that one override knob).
+			return int(atomic.LoadInt32(&frontedMeekHTTPSDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH:
 			return serverEntry.SshShadowsocksPort, nil

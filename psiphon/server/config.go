@@ -1432,6 +1432,7 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 	// - Neither fronted meek nor Conjuure protocols are supported here.
 
 	var sshPort, obfuscatedSSHPort, meekPort, obfuscatedSSHQUICPort, tlsOSSHPort, shadowsocksPort int
+	var webSocketOSSHPort, webSocketTLSOSSHPort int
 	var inproxySSHPort, inproxyOSSHPort, inproxyQUICPort, inproxyMeekPort, inproxyTlsOSSHPort, inproxyShadowsocksPort int
 
 	for tunnelProtocol, port := range params.TunnelProtocolPorts {
@@ -1450,6 +1451,10 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 				protocol.TUNNEL_PROTOCOL_UNFRONTED_MEEK_SESSION_TICKET,
 				protocol.TUNNEL_PROTOCOL_UNFRONTED_MEEK:
 				meekPort = port
+			case protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH:
+				webSocketOSSHPort = port
+			case protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH:
+				webSocketTLSOSSHPort = port
 			case protocol.TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH:
 				shadowsocksPort = port
 			}
@@ -1497,6 +1502,8 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 		ProviderID:                          params.ProviderID,
 		FrontingProviderID:                  frontingProviderID,
 		MeekServerPort:                      meekPort,
+		WebSocketOSSHPort:                   webSocketOSSHPort,
+		WebSocketTLSOSSHPort:                webSocketTLSOSSHPort,
 		MeekCookieEncryptionPublicKey:       meekCookieEncryptionPublicKey,
 		MeekObfuscatedKey:                   meekObfuscatedKey,
 		MeekFrontingHosts:                   []string{params.ServerIPAddress},
