@@ -72,6 +72,8 @@ type ServerEntry struct {
 	MeekServerPort                      int      `json:"meekServerPort,omitempty"`
 	WebSocketOSSHPort                   int      `json:"webSocketOSSHPort,omitempty"`
 	WebSocketTLSOSSHPort                int      `json:"webSocketTLSOSSHPort,omitempty"`
+	FrontedWebSocketOSSHPort            int      `json:"frontedWebSocketOSSHPort,omitempty"`
+	FrontedWebSocketTLSOSSHPort         int      `json:"frontedWebSocketTLSOSSHPort,omitempty"`
 	MeekCookieEncryptionPublicKey       string   `json:"meekCookieEncryptionPublicKey,omitempty"`
 	MeekObfuscatedKey                   string   `json:"meekObfuscatedKey,omitempty"`
 	MeekFrontingHost                    string   `json:"meekFrontingHost,omitempty"`
@@ -809,16 +811,20 @@ func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, e
 			return serverEntry.WebSocketTLSOSSHPort, nil
 
 		case TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH:
-			// Fixed port, same as FRONTED-MEEK-HTTP-OSSH: the CDN edge
-			// terminates plain HTTP on 80 and relays to the origin.
-			return 80, nil
+			// NOT fixed at 80: unlike FRONTED-MEEK-HTTP-OSSH,
+			// FRONTED-WS-OSSH cannot share port 80 with
+			// FRONTED-MEEK-HTTP-OSSH on the same origin (no demux
+			// between them), so it needs its own dedicated port,
+			// same as the UNFRONTED variants. A real CDN (Cloudflare
+			// etc.) can still front this: the edge-to-origin port is
+			// independently configurable per origin rule and does
+			// not have to be 80.
+			return serverEntry.FrontedWebSocketOSSHPort, nil
 
 		case TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH:
-			// Fixed port, same as FRONTED-MEEK-OSSH: the CDN edge
-			// terminates TLS on 443 (overridable via
-			// SetFrontedMeekHTTPDialPortNumber for test servers, since
-			// both fronted variants share that one override knob).
-			return int(atomic.LoadInt32(&frontedMeekHTTPSDialPortNumber)), nil
+			// See TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH above: dedicated
+			// port, not shared with FRONTED-MEEK-OSSH's 443.
+			return serverEntry.FrontedWebSocketTLSOSSHPort, nil
 
 		case TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH:
 			return serverEntry.SshShadowsocksPort, nil

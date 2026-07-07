@@ -1433,6 +1433,7 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 
 	var sshPort, obfuscatedSSHPort, meekPort, obfuscatedSSHQUICPort, tlsOSSHPort, shadowsocksPort int
 	var webSocketOSSHPort, webSocketTLSOSSHPort int
+	var frontedWebSocketOSSHPort, frontedWebSocketTLSOSSHPort int
 	var inproxySSHPort, inproxyOSSHPort, inproxyQUICPort, inproxyMeekPort, inproxyTlsOSSHPort, inproxyShadowsocksPort int
 
 	for tunnelProtocol, port := range params.TunnelProtocolPorts {
@@ -1455,6 +1456,10 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 				webSocketOSSHPort = port
 			case protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH:
 				webSocketTLSOSSHPort = port
+			case protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH:
+				frontedWebSocketOSSHPort = port
+			case protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH:
+				frontedWebSocketTLSOSSHPort = port
 			case protocol.TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH:
 				shadowsocksPort = port
 			}
@@ -1504,6 +1509,8 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 		MeekServerPort:                      meekPort,
 		WebSocketOSSHPort:                   webSocketOSSHPort,
 		WebSocketTLSOSSHPort:                webSocketTLSOSSHPort,
+		FrontedWebSocketOSSHPort:            frontedWebSocketOSSHPort,
+		FrontedWebSocketTLSOSSHPort:         frontedWebSocketTLSOSSHPort,
 		MeekCookieEncryptionPublicKey:       meekCookieEncryptionPublicKey,
 		MeekObfuscatedKey:                   meekObfuscatedKey,
 		MeekFrontingHosts:                   []string{params.ServerIPAddress},
