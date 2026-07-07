@@ -47,19 +47,6 @@ const (
 	TUNNEL_PROTOCOL_TAPDANCE_OBFUSCATED_SSH          = "TAPDANCE-OSSH"
 	TUNNEL_PROTOCOL_CONJURE_OBFUSCATED_SSH           = "CONJURE-OSSH"
 
-	// WebSocket-tunneled OSSH, added in this fork. See
-	// psiphon/common/websocket and psiphon/server/websocket.go.
-	// UNFRONTED_* connect directly to the server's own address/port, same
-	// as UNFRONTED_MEEK*. FRONTED_* connect to a CDN edge address, with
-	// the true server identity carried only in the WebSocket request's
-	// Host header, same as FRONTED_MEEK*. The _TLS_ variants wrap the
-	// WebSocket handshake in TLS (i.e. "wss://"); the non-TLS variants do
-	// not (i.e. "ws://").
-	TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH     = "UNFRONTED-WS-OSSH"
-	TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH = "UNFRONTED-WSS-OSSH"
-	TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH       = "FRONTED-WS-OSSH"
-	TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH   = "FRONTED-WSS-OSSH"
-
 	FRONTING_TRANSPORT_HTTPS = "FRONTED-HTTPS"
 	FRONTING_TRANSPORT_HTTP  = "FRONTED-HTTP"
 	FRONTING_TRANSPORT_QUIC  = "FRONTED-QUIC"
@@ -247,10 +234,6 @@ var SupportedTunnelProtocols = TunnelProtocols{
 	TUNNEL_PROTOCOL_TAPDANCE_OBFUSCATED_SSH,
 	TUNNEL_PROTOCOL_CONJURE_OBFUSCATED_SSH,
 	TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH,
-	TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH,
-	TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH,
-	TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH,
-	TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH,
 }
 
 var DefaultDisabledTunnelProtocols = TunnelProtocols{
@@ -316,14 +299,7 @@ func TunnelProtocolIsCompatibleWithInproxy(protocol string) bool {
 	// The TapDance and Conjure destination addresses are not included
 	// in the server entry, so TAPDANCE-OSSH and CONJURE-OSSH dial
 	// destinations cannot be validated for inproxy use.
-	//
-	// TunnelProtocolUsesWebSocket protocols are also excluded here for
-	// now: the in-proxy 2nd-hop dial code doesn't yet have a WebSocket
-	// case, so an auto-generated INPROXY-WEBRTC-UNFRONTED-WS-OSSH would
-	// be listed as "supported" while nothing knows how to dial it. Remove
-	// this exclusion once that dial path is implemented and tested.
-	return !TunnelProtocolUsesRefractionNetworking(protocol) &&
-		!TunnelProtocolUsesWebSocket(protocol)
+	return !TunnelProtocolUsesRefractionNetworking(protocol)
 }
 
 func TunnelProtocolUsesTCP(protocol string) bool {
@@ -408,44 +384,6 @@ func TunnelProtocolUsesFrontedMeekNonHTTPS(protocol string) bool {
 		protocol == TUNNEL_PROTOCOL_FRONTED_MEEK_QUIC_OBFUSCATED_SSH
 }
 
-// TunnelProtocolUsesWebSocket is true for all four WebSocket-tunneled OSSH
-// variants (UNFRONTED-WS-OSSH, UNFRONTED-WSS-OSSH, FRONTED-WS-OSSH,
-// FRONTED-WSS-OSSH). See psiphon/common/websocket and
-// psiphon/server/websocket.go.
-func TunnelProtocolUsesWebSocket(protocol string) bool {
-	protocol = TunnelProtocolMinusInproxy(protocol)
-	return protocol == TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH ||
-		protocol == TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH ||
-		protocol == TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH ||
-		protocol == TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH
-}
-
-// TunnelProtocolUsesFrontedWebSocket is true for the two variants that
-// connect to a CDN edge address rather than directly to the server, with
-// the true server identity carried in the WebSocket request's Host header.
-// This mirrors TunnelProtocolUsesFrontedMeek. Used, e.g., by
-// IsValidClientTunnelProtocol's "server runs several fronted protocols
-// behind one CDN-facing port" tolerance -- extend that switch to call this
-// too if fronted WebSocket and fronted Meek are ever deployed sharing a
-// port on the same server.
-func TunnelProtocolUsesFrontedWebSocket(protocol string) bool {
-	protocol = TunnelProtocolMinusInproxy(protocol)
-	return protocol == TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH ||
-		protocol == TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH
-}
-
-// TunnelProtocolUsesWebSocketTLS is true for the two variants where the
-// WebSocket handshake itself is wrapped in TLS (wss://), as opposed to
-// plain ws://. Server-side, this determines whether the listener needs to
-// be wrapped via a TLS listener (see makeWebSocketTLSListener in
-// psiphon/server/websocket.go) before being handed to the HTTP server that
-// performs the WebSocket upgrade.
-func TunnelProtocolUsesWebSocketTLS(protocol string) bool {
-	protocol = TunnelProtocolMinusInproxy(protocol)
-	return protocol == TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH ||
-		protocol == TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH
-}
-
 func TunnelProtocolUsesRefractionNetworking(protocol string) bool {
 	return protocol == TUNNEL_PROTOCOL_TAPDANCE_OBFUSCATED_SSH ||
 		protocol == TUNNEL_PROTOCOL_CONJURE_OBFUSCATED_SSH
@@ -493,9 +431,7 @@ func TunnelProtocolIsDirect(protocol string) bool {
 		protocol == TUNNEL_PROTOCOL_UNFRONTED_MEEK_HTTPS ||
 		protocol == TUNNEL_PROTOCOL_UNFRONTED_MEEK_SESSION_TICKET ||
 		protocol == TUNNEL_PROTOCOL_QUIC_OBFUSCATED_SSH ||
-		protocol == TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH ||
-		protocol == TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH ||
-		protocol == TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH
+		protocol == TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH
 }
 
 func TunnelProtocolRequiresTLS12SessionTickets(protocol string) bool {

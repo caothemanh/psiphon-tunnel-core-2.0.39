@@ -27,7 +27,11 @@ import (
 	"sync"
 	"time"
 
+	psiphon_tls "github.com/Psiphon-Labs/psiphon-tls"
+	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/errors"
+	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/prng"
+	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/values"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/websocket"
 )
 
@@ -38,32 +42,51 @@ import (
 // Unlike MeekServer, there is no long-polling, no cookie-encoded session
 // state, and no turn-around timeout logic: the WebSocket upgrade itself
 // gives a persistent, full-duplex net.Conn, which is handed directly to
-// clientHandler exactly like a direct OSSH TCP accept would be. isFronted
-// only affects logging/metrics here (see tunnelServer.go's
-// additionalTransportData) -- the fronting CDN's TLS termination happens
-// upstream of this listener (WS) or the CDN passes through TLS to us
-// (WSS), matching how FRONTED-MEEK-HTTP-OSSH already works in this
-// codebase.
+// clientHandler exactly like a direct OSSH TCP accept would be.
+//
+// isFronted determines which of the two WSS TLS config paths is used when
+// useTLS is set (see NewWebSocketServer); for the non-TLS protocols
+// (UNFRONTED-WS-OSSH, FRONTED-WS-OSSH) it otherwise only affects
+// logging/metrics (see tunnelServer.go's additionalTransportData) -- the
+// fronting CDN's TLS termination with the client happens upstream of this
+// listener either way, matching how FRONTED-MEEK-HTTP-OSSH already works
+// in this codebase.
 type WebSocketServer struct {
-	support         *SupportServices
-	listener        net.Listener
-	tunnelProtocol  string
-	port            int
-	useTLS          bool
-	isFronted       bool
-	resourcePath    string
-	clientHandler   func(clientConn net.Conn, data *additionalTransportData)
-	httpServer      *http.Server
-	stopBroadcast   <-chan struct{}
-	runWaitGroup    sync.WaitGroup
+	support          *SupportServices
+	listener         net.Listener
+	tunnelProtocol   string
+	port             int
+	useTLS           bool
+	isFronted        bool
+	resourcePath     string
+	stdTLSConfig     *tls.Config
+	psiphonTLSConfig *psiphon_tls.Config
+	clientHandler    func(clientConn net.Conn, data *additionalTransportData)
+	httpServer       *http.Server
+	stopBroadcast    <-chan struct{}
+	runWaitGroup     sync.WaitGroup
 }
 
 // NewWebSocketServer initializes a new WebSocket OSSH server. listener is
-// a plain TCP listener (WS) or a TLS listener wrapping TCP (WSS) --
-// callers should construct the TLS listener the same way
-// ListenTLSTunnel/makeDirectMeekTLSConfig-style code does elsewhere in
-// this package, then pass useTLS true purely for logging purposes since
-// the listener itself is already doing the TLS termination.
+// always a plain TCP listener; when useTLS is true, NewWebSocketServer
+// builds the appropriate TLS config itself and Run wraps listener with it
+// at Serve time -- exactly the same lazy-wrap pattern NewMeekServer/
+// MeekServer.Run use for isMeekHTTPS, so that callers (tunnelServer.go)
+// don't need two different code paths for fronted vs. direct TCP setup.
+//
+// For isFronted+useTLS (FRONTED-WSS-OSSH), a standard crypto/tls config is
+// used, matching makeFrontedMeekTLSConfig: this is the edge-to-origin hop,
+// where the CDN has already validated the client, so passthrough and
+// obfuscated session tickets are not needed here. Unlike fronted meek,
+// "h2" is deliberately NOT offered in NextProtos: this server's WebSocket
+// upgrade relies on http.Hijacker, which net/http's HTTP/2 server does not
+// support, so negotiating h2 here would break the upgrade.
+//
+// For !isFronted+useTLS (UNFRONTED-WSS-OSSH), psiphon-tls is used, matching
+// makeDirectMeekTLSConfig, so the direct TLS handshake gets the same
+// scanning/fingerprinting-resistant version/cipher-suite variance as
+// UNFRONTED-MEEK-HTTPS-OSSH. Passthrough and obfuscated session tickets are
+// not wired up yet -- see the TODO below.
 //
 // resourcePath, if non-empty, must match the path clients request in
 // their WebSocket upgrade (see WebSocketConfig.ResourcePath client-side);
@@ -94,6 +117,30 @@ func NewWebSocketServer(
 		stopBroadcast:  stopBroadcast,
 	}
 
+	if useTLS {
+
+		if isFronted {
+
+			tlsConfig, err := server.makeFrontedWebSocketTLSConfig()
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			server.stdTLSConfig = tlsConfig
+
+		} else {
+
+			// TODO: wire up useObfuscatedSessionTickets and a passthrough
+			// address here, same as makeDirectMeekTLSConfig, once
+			// TunnelProtocolPassthroughAddresses/tactics plumbing for
+			// UNFRONTED-WSS-OSSH is added in tunnelServer.go/config.go.
+			tlsConfig, err := server.makeDirectWebSocketTLSConfig()
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			server.psiphonTLSConfig = tlsConfig
+		}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", server.serveHTTP)
 
@@ -116,6 +163,13 @@ func NewWebSocketServer(
 // MeekServer.Run/TunnelServer.Run's shutdown pattern.
 func (server *WebSocketServer) Run() error {
 
+	listener := server.listener
+	if server.stdTLSConfig != nil {
+		listener = tls.NewListener(listener, server.stdTLSConfig)
+	} else if server.psiphonTLSConfig != nil {
+		listener = psiphon_tls.NewListener(listener, server.psiphonTLSConfig)
+	}
+
 	server.runWaitGroup.Add(1)
 	go func() {
 		defer server.runWaitGroup.Done()
@@ -125,7 +179,7 @@ func (server *WebSocketServer) Run() error {
 		}
 	}()
 
-	err := server.httpServer.Serve(server.listener)
+	err := server.httpServer.Serve(listener)
 
 	server.runWaitGroup.Wait()
 
@@ -176,21 +230,105 @@ func (server *WebSocketServer) serveHTTP(w http.ResponseWriter, r *http.Request)
 	server.clientHandler(wsConn, data)
 }
 
-// makeWebSocketTLSListener wraps a plain TCP listener in TLS, for the WSS
-// variants. This intentionally reuses the same certificate-selection
-// logic path as fronted/direct meek so that the WSS listener presents a
-// TLS server the same way the existing MEEK-HTTPS listener does; see
-// MeekServer.getWebServerCertificate / makeFrontedMeekTLSConfig /
-// makeDirectMeekTLSConfig in meek.go for the certificate material this
-// should share, and wire this up to call whichever of those matches your
-// deployment (fronted WSS behind Cloudflare needs the same certificate
-// posture as FRONTED-MEEK-HTTP-OSSH; unfronted WSS needs a
-// server-presented cert like UNFRONTED-MEEK-HTTPS-OSSH does).
-func makeWebSocketTLSListener(
-	listener net.Listener,
-	tlsConfig *tls.Config,
-) net.Listener {
-	return tls.NewListener(listener, tlsConfig)
+// getWebServerCertificate returns the origin's TLS certificate/key,
+// reusing the same MeekServerCertificate/MeekServerPrivateKey config
+// fields the meek listeners use (or generating one on the fly, same as
+// MeekServer.getWebServerCertificate) -- this is the origin server's own
+// cert, not protocol-specific, so sharing it across meek and WebSocket
+// listeners is intentional, not a naming leftover.
+func (server *WebSocketServer) getWebServerCertificate() ([]byte, []byte, error) {
+
+	var certificate, privateKey string
+
+	if server.support.Config.MeekServerCertificate != "" {
+		certificate = server.support.Config.MeekServerCertificate
+		privateKey = server.support.Config.MeekServerPrivateKey
+
+	} else {
+		var err error
+		certificate, privateKey, _, err = common.GenerateWebServerCertificate(values.GetHostName())
+		if err != nil {
+			return nil, nil, errors.Trace(err)
+		}
+	}
+
+	return []byte(certificate), []byte(privateKey), nil
+}
+
+// makeFrontedWebSocketTLSConfig creates a TLS config for the edge-to-origin
+// hop of a FRONTED-WSS-OSSH listener. Mirrors
+// MeekServer.makeFrontedMeekTLSConfig, including the non-ephemeral cipher
+// suite preference (the WebSocket framing provides obfuscation, not
+// privacy/integrity -- that's the tunneled SSH's job -- so perfect forward
+// secrecy isn't a requirement here, and non-ephemeral suites cost the
+// server less).
+//
+// Deliberately does NOT offer "h2" in NextProtos, unlike fronted meek:
+// serveHTTP's websocket.Upgrade relies on http.Hijacker, which is not
+// available on HTTP/2 connections in net/http's server, so negotiating h2
+// here would break every fronted WSS upgrade.
+func (server *WebSocketServer) makeFrontedWebSocketTLSConfig() (*tls.Config, error) {
+
+	certificate, privateKey, err := server.getWebServerCertificate()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	tlsCertificate, err := tls.X509KeyPair(certificate, privateKey)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	minVersionCandidates := []uint16{tls.VersionTLS10, tls.VersionTLS11, tls.VersionTLS12}
+	minVersion := minVersionCandidates[prng.Intn(len(minVersionCandidates))]
+
+	cipherSuites := []uint16{
+		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_RSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{tlsCertificate},
+		NextProtos:   []string{"http/1.1"},
+		MinVersion:   minVersion,
+		CipherSuites: cipherSuites,
+	}, nil
+}
+
+// makeDirectWebSocketTLSConfig creates a TLS config for a direct
+// UNFRONTED-WSS-OSSH listener. Mirrors MeekServer.makeDirectMeekTLSConfig,
+// minus the obfuscated session ticket and passthrough options -- see the
+// TODO in NewWebSocketServer for wiring those up.
+func (server *WebSocketServer) makeDirectWebSocketTLSConfig() (*psiphon_tls.Config, error) {
+
+	certificate, privateKey, err := server.getWebServerCertificate()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	tlsCertificate, err := psiphon_tls.X509KeyPair(certificate, privateKey)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	minVersionCandidates := []uint16{tls.VersionTLS10, tls.VersionTLS11, tls.VersionTLS12}
+	minVersion := minVersionCandidates[prng.Intn(len(minVersionCandidates))]
+
+	return &psiphon_tls.Config{
+		Certificates: []psiphon_tls.Certificate{tlsCertificate},
+		NextProtos:   []string{"http/1.1"},
+		MinVersion:   minVersion,
+	}, nil
 }
 
 var _ = context.Background // placeholder to keep context imported if you

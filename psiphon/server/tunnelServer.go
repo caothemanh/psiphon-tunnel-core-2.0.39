@@ -56,6 +56,7 @@ import (
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/tactics"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/transforms"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/tun"
+	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/websocket"
 	lrucache "github.com/cognusion/go-cache-lru"
 	"github.com/marusama/semaphore"
 	cache "github.com/patrickmn/go-cache"
@@ -233,7 +234,18 @@ func (server *TunnelServer) Run() error {
 				return errors.Trace(err)
 			}
 
-		} else if protocol.TunnelProtocolUsesFrontedMeek(tunnelProtocol) {
+		} else if protocol.TunnelProtocolUsesFrontedMeek(tunnelProtocol) ||
+			protocol.TunnelProtocolUsesFrontedWebSocket(tunnelProtocol) {
+
+			// Fronted WebSocket (FRONTED-WS-OSSH / FRONTED-WSS-OSSH) shares
+			// the plain TCP listener setup used by fronted meek: the CDN
+			// edge terminates the client-facing connection, and whether
+			// the edge-to-origin hop itself needs TLS (FRONTED-WSS-OSSH,
+			// analogous to FRONTED-MEEK) or not (FRONTED-WS-OSSH,
+			// analogous to FRONTED-MEEK-HTTP) is handled inside
+			// NewWebSocketServer/WebSocketServer.Run, exactly as
+			// NewMeekServer/MeekServer.Run does for isFronted+useTLS.
+			// See websocket.go's useTLS handling.
 
 			listener, err = net.Listen("tcp", localAddress)
 			if err != nil {
@@ -444,6 +456,9 @@ type sshServer struct {
 
 	meekServersMutex sync.Mutex
 	meekServers      []*MeekServer
+
+	websocketServersMutex sync.Mutex
+	websocketServers      []*WebSocketServer
 }
 
 func newSSHServer(
@@ -748,6 +763,37 @@ func (sshServer *sshServer) runListener(sshListener *sshListener, listenerError 
 			}
 		}
 
+	} else if protocol.TunnelProtocolUsesWebSocket(sshListener.tunnelProtocol) {
+
+		// resourcePath is derived from MeekObfuscatedKey, the same
+		// pre-shared secret already provisioned for the existing meek
+		// protocols (both client and server already have it), so
+		// UNFRONTED/FRONTED-WS(S)-OSSH gets a non-default, non-guessable
+		// upgrade path with zero additional config. See
+		// websocket.DerivePath's doc comment.
+		resourcePath := websocket.DerivePath(sshServer.support.Config.MeekObfuscatedKey)
+
+		webSocketServer, err := NewWebSocketServer(
+			sshServer.support,
+			sshListener.Listener,
+			sshListener.tunnelProtocol,
+			sshListener.port,
+			protocol.TunnelProtocolUsesWebSocketTLS(sshListener.tunnelProtocol),
+			protocol.TunnelProtocolUsesFrontedWebSocket(sshListener.tunnelProtocol),
+			resourcePath,
+			handleClient,
+			sshServer.shutdownBroadcast)
+
+		if err == nil {
+			sshServer.registerWebSocketServer(webSocketServer)
+			err = webSocketServer.Run()
+		}
+
+		if err != nil {
+			reportListenerError(listenerError, errors.Trace(err))
+			return
+		}
+
 	} else {
 
 		runListener(sshListener.Listener, sshServer.shutdownBroadcast, listenerError, "", handleClient)
@@ -936,6 +982,20 @@ func (sshServer *sshServer) registerMeekServer(meekServer *MeekServer) {
 	sshServer.meekServers = append(sshServer.meekServers, meekServer)
 }
 
+// registerWebSocketServer registers a WebSocketServer instance to receive
+// tactics reload signals. Mirrors registerMeekServer. Note:
+// WebSocketServer.ReloadTactics is currently a no-op stub (see
+// websocket.go), so this has no effect yet; it's wired up now so nothing
+// else needs to change here once ReloadTactics is implemented for real
+// (e.g. if WS-OSSH ever needs runtime tactics, such as dynamic passthrough
+// addresses).
+func (sshServer *sshServer) registerWebSocketServer(webSocketServer *WebSocketServer) {
+	sshServer.websocketServersMutex.Lock()
+	defer sshServer.websocketServersMutex.Unlock()
+
+	sshServer.websocketServers = append(sshServer.websocketServers, webSocketServer)
+}
+
 // reloadMeekServerTactics signals each registered MeekServer instance that
 // tactics have reloaded and may have changed.
 func (sshServer *sshServer) reloadMeekServerTactics() error {
@@ -944,6 +1004,21 @@ func (sshServer *sshServer) reloadMeekServerTactics() error {
 
 	for _, meekServer := range sshServer.meekServers {
 		err := meekServer.ReloadTactics()
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// reloadWebSocketServerTactics signals each registered WebSocketServer
+// instance that tactics have reloaded. Mirrors reloadMeekServerTactics.
+func (sshServer *sshServer) reloadWebSocketServerTactics() error {
+	sshServer.websocketServersMutex.Lock()
+	defer sshServer.websocketServersMutex.Unlock()
+
+	for _, webSocketServer := range sshServer.websocketServers {
+		err := webSocketServer.ReloadTactics()
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1622,6 +1697,11 @@ func (sshServer *sshServer) reloadTactics() error {
 	}
 
 	err := sshServer.reloadMeekServerTactics()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = sshServer.reloadWebSocketServerTactics()
 	if err != nil {
 		return errors.Trace(err)
 	}
