@@ -920,6 +920,16 @@ func dialTunnel(
 			return nil, errors.Trace(err)
 		}
 
+	} else if protocol.TunnelProtocolUsesWebSocket(dialParams.TunnelProtocol) {
+
+		dialConn, err = DialWebSocketTunnel(
+			ctx,
+			dialParams.GetWebSocketConfig(config),
+			dialParams.GetDialConfig())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
 	} else if protocol.TunnelProtocolUsesQUIC(dialParams.TunnelProtocol) {
 
 		var packetConn net.PacketConn

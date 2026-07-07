@@ -46,6 +46,7 @@ import (
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/tlsdialer"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/transforms"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/values"
+	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/websocket"
 	utls "github.com/Psiphon-Labs/utls"
 	lrucache "github.com/cognusion/go-cache-lru"
 	"golang.org/x/net/bpf"
@@ -1569,6 +1570,34 @@ func MakeDialParameters(
 			dialParams.MeekSNIServerName = serverEntry.IpAddress
 		}
 
+	case protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_OSSH,
+		protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH:
+
+		// Reuses the same MeekDialAddress/MeekHostHeader/MeekSNIServerName
+		// fields and the same fronting selection (MeekFrontingDialAddress/
+		// MeekFrontingHost, populated earlier from serverEntry's existing
+		// MeekFrontingAddresses/MeekFrontingHost) as FRONTED-MEEK-HTTP-OSSH.
+		// This is intentional: FRONTED-WS(S)-OSSH rides the same CDN
+		// fronting configuration already set up for MEEK, nothing new to
+		// configure server-entry-side.
+		dialParams.MeekDialAddress = net.JoinHostPort(dialParams.MeekFrontingDialAddress, dialParams.DialPortNumber)
+		dialParams.MeekHostHeader = dialParams.MeekFrontingHost
+		if serverEntry.MeekFrontingDisableSNI {
+			dialParams.MeekSNIServerName = ""
+			dialParams.MeekTransformedHostName = false
+		} else if !dialParams.MeekTransformedHostName {
+			dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+		}
+
+	case protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH,
+		protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_TLS_OSSH:
+
+		dialParams.MeekDialAddress = net.JoinHostPort(serverEntry.IpAddress, dialParams.DialPortNumber)
+		dialParams.MeekHostHeader = serverEntry.IpAddress
+		if !dialParams.MeekTransformedHostName {
+			dialParams.MeekSNIServerName = serverEntry.IpAddress
+		}
+
 	default:
 		return nil, errors.Tracef(
 			"unknown tunnel protocol: %s", dialParams.TunnelProtocol)
@@ -1919,6 +1948,28 @@ func (dialParams *DialParameters) GetDialConfig() *DialConfig {
 
 func (dialParams *DialParameters) GetMeekConfig() *MeekConfig {
 	return dialParams.meekConfig
+}
+
+func (dialParams *DialParameters) GetWebSocketConfig(config *Config) *WebSocketConfig {
+
+	return &WebSocketConfig{
+		Parameters:    config.GetParameters(),
+		DialAddress:   dialParams.MeekDialAddress,
+		HostHeader:    dialParams.MeekHostHeader,
+		SNIServerName: dialParams.MeekSNIServerName,
+		ResourcePath:  websocket.DerivePath(dialParams.ServerEntry.MeekObfuscatedKey),
+		UseTLS:        protocol.TunnelProtocolUsesWebSocketTLS(dialParams.TunnelProtocol),
+		// SkipVerify: true, matching MeekConn/TLSTunnelConn -- see the
+		// detailed rationale in meekConn.go (search "Reasoning for #3").
+		// In short: verifying the TLS cert here buys nothing against an
+		// active MiM (the client would just refuse to connect, which is
+		// also a failure), while confidentiality/integrity already comes
+		// from the SSH layer underneath, not from this TLS layer.
+		SkipVerify:               true,
+		TLSProfile:               dialParams.TLSProfile,
+		NoDefaultTLSSessionID:    dialParams.NoDefaultTLSSessionID,
+		RandomizedTLSProfileSeed: dialParams.RandomizedTLSProfileSeed,
+	}
 }
 
 func (dialParams *DialParameters) GetTLSOSSHConfig(config *Config) *TLSTunnelConfig {
