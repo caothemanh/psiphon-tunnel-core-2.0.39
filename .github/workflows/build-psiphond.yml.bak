@@ -142,15 +142,3 @@ jobs:
           name: psiphond-linux-amd64
           path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server/psiphond
           retention-days: 7
-          - name: Build psiphon-authgen
-        run: |
-          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen
-          GOOS=linux GOARCH=amd64 go build -o psiphon-authgen .
-          ls -lh psiphon-authgen
-
-      - name: Upload psiphon-authgen
-        uses: actions/upload-artifact@v4
-        with:
-          name: psiphon-authgen-linux-amd64
-          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen/psiphon-authgen
-          retention-days: 7
