@@ -13,15 +13,25 @@ import sys
 def patch_file(path, replacements):
     with open(path, "r") as f:
         content = f.read()
+    changed = False
     for old, new in replacements:
+        if new in content:
+            # Already patched (e.g. file was committed pre-modified, or
+            # this script already ran once) - skip safely.
+            print(f"SKIP (already applied) in {path}: {repr(old[:60])}")
+            continue
         if old not in content:
             print(f"ERROR: pattern not found in {path}:")
             print(repr(old[:200]))
             sys.exit(1)
         content = content.replace(old, new)
-    with open(path, "w") as f:
-        f.write(content)
-    print(f"Patched {path}")
+        changed = True
+    if changed:
+        with open(path, "w") as f:
+            f.write(content)
+        print(f"Patched {path}")
+    else:
+        print(f"Nothing to do for {path} (already fully patched)")
 
 
 # ---------------------------------------------------------------------
