@@ -633,6 +633,7 @@ type SupportServices struct {
 	// of this package.
 	Config                       *Config
 	TrafficRulesSet              *TrafficRulesSet
+	DeviceLimitsSet              *DeviceLimitsSet
 	OSLConfig                    *osl.Config
 	PsinetDatabase               *psinet.Database
 	GeoIPService                 *GeoIPService
@@ -653,6 +654,11 @@ type SupportServices struct {
 func NewSupportServices(config *Config) (*SupportServices, error) {
 
 	trafficRulesSet, err := NewTrafficRulesSet(config.TrafficRulesFilename)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	deviceLimitsSet, err := NewDeviceLimitsSet(config.AuthorizationDeviceLimitsFilename)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -697,6 +703,7 @@ func NewSupportServices(config *Config) (*SupportServices, error) {
 	support := &SupportServices{
 		Config:          config,
 		TrafficRulesSet: trafficRulesSet,
+		DeviceLimitsSet: deviceLimitsSet,
 		OSLConfig:       oslConfig,
 		PsinetDatabase:  psinetDatabase,
 		GeoIPService:    geoIPService,
@@ -721,6 +728,7 @@ func (support *SupportServices) Reload() {
 	reloaders := append(
 		[]common.Reloader{
 			support.TrafficRulesSet,
+			support.DeviceLimitsSet,
 			support.OSLConfig,
 			support.PsinetDatabase,
 			support.TacticsServer,
