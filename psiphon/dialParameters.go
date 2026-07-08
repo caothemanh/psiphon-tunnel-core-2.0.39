@@ -924,7 +924,8 @@ func MakeDialParameters(
 	}
 
 	if (!isReplay || !replayFronting) &&
-		protocol.TunnelProtocolUsesFrontedMeek(dialParams.TunnelProtocol) {
+		(protocol.TunnelProtocolUsesFrontedMeek(dialParams.TunnelProtocol) ||
+			protocol.TunnelProtocolUsesFrontedWebSocket(dialParams.TunnelProtocol)) {
 
 		dialParams.FrontingProviderID = serverEntry.FrontingProviderID
 
