@@ -1583,7 +1583,22 @@ func MakeDialParameters(
 		// configure server-entry-side.
 		dialParams.MeekDialAddress = net.JoinHostPort(dialParams.MeekFrontingDialAddress, dialParams.DialPortNumber)
 		dialParams.MeekHostHeader = dialParams.MeekFrontingHost
-		if serverEntry.MeekFrontingDisableSNI {
+
+		// FIX: MeekFrontingDisableSNI is a MEEK-specific workaround (some
+		// CDN/edge configs are set up to not require SNI for meek) and is
+		// only meaningful for the non-TLS wire format meek uses. Most CDNs
+		// (CloudFront, Cloudflare, etc.) route/terminate TLS based on the
+		// SNI in the ClientHello -- if a server entry happens to have
+		// MeekFrontingDisableSNI=true (set for meek's sake) and that flag
+		// is blindly inherited here, FRONTED-WSS-OSSH's TLS ClientHello
+		// goes out with NO SNI at all, which many CDN edges/SNI-routing
+		// proxies (nginx stream ssl_preread, CloudFront, etc.) can't route,
+		// so the TLS handshake never completes -- while FRONTED-WS-OSSH
+		// (plain, no TLS/SNI involved) keeps working fine over the exact
+		// same fronting domain. So: only honor MeekFrontingDisableSNI for
+		// the plain WS-OSSH variant; always send proper SNI for WSS-OSSH.
+		isWebSocketTLS := dialParams.TunnelProtocol == protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH
+		if serverEntry.MeekFrontingDisableSNI && !isWebSocketTLS {
 			dialParams.MeekSNIServerName = ""
 			dialParams.MeekTransformedHostName = false
 		} else if !dialParams.MeekTransformedHostName {
@@ -1595,9 +1610,16 @@ func MakeDialParameters(
 
 		dialParams.MeekDialAddress = net.JoinHostPort(serverEntry.IpAddress, dialParams.DialPortNumber)
 		dialParams.MeekHostHeader = serverEntry.IpAddress
-		if !dialParams.MeekTransformedHostName {
-			dialParams.MeekSNIServerName = serverEntry.IpAddress
-		}
+
+		// FIX: previously gated on !dialParams.MeekTransformedHostName.
+		// That field is never set true anywhere for the WEBSOCKET
+		// protocols (the hostname-transform code earlier in this function
+		// only handles Meek/TLS-OSSH/QUIC protocols), so the guard was a
+		// no-op here in practice -- but set this unconditionally and
+		// explicitly, so a future change to the hostname-transform code
+		// can't silently reintroduce a blank/skipped SNI for
+		// UNFRONTED-WSS-OSSH.
+		dialParams.MeekSNIServerName = serverEntry.IpAddress
 
 	default:
 		return nil, errors.Tracef(
@@ -2612,105 +2634,4 @@ func makeOSSHPrefixSpecParameters(
 		return &obfuscator.OSSHPrefixSpec{
 			Name: name,
 			Spec: spec,
-			Seed: seed,
-		}, nil
-	}
-}
-
-func makeOSSHPrefixSplitConfig(
-	p parameters.ParametersAccessor) (*obfuscator.OSSHPrefixSplitConfig, error) {
-
-	minDelay := p.Duration(parameters.OSSHPrefixSplitMinDelay)
-	maxDelay := p.Duration(parameters.OSSHPrefixSplitMaxDelay)
-
-	seed, err := prng.NewSeed()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &obfuscator.OSSHPrefixSplitConfig{
-		Seed:     seed,
-		MinDelay: minDelay,
-		MaxDelay: maxDelay,
-	}, nil
-}
-
-func makeShadowsocksPrefixSpecParameters(
-	p parameters.ParametersAccessor,
-	dialPortNumber string) (*ShadowsocksPrefixSpec, error) {
-
-	if !p.WeightedCoinFlip(parameters.ShadowsocksPrefixProbability) {
-		return &ShadowsocksPrefixSpec{}, nil
-	}
-
-	specs := p.ProtocolTransformSpecs(parameters.ShadowsocksPrefixSpecs)
-	scopedSpecNames := p.ProtocolTransformScopedSpecNames(parameters.ShadowsocksPrefixScopedSpecNames)
-
-	name, spec := specs.Select(dialPortNumber, scopedSpecNames)
-
-	if spec == nil {
-		return &ShadowsocksPrefixSpec{}, nil
-	} else {
-		seed, err := prng.NewSeed()
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return &ShadowsocksPrefixSpec{
-			Name: name,
-			Spec: spec,
-			Seed: seed,
-		}, nil
-	}
-}
-
-func selectConjureTransport(
-	p parameters.ParametersAccessor) string {
-
-	limitConjureTransports := p.ConjureTransports(parameters.ConjureLimitTransports)
-
-	transports := make([]string, 0)
-
-	for _, transport := range protocol.SupportedConjureTransports {
-
-		if len(limitConjureTransports) > 0 &&
-			!common.Contains(limitConjureTransports, transport) {
-			continue
-		}
-
-		transports = append(transports, transport)
-	}
-
-	if len(transports) == 0 {
-		return ""
-	}
-
-	choice := prng.Intn(len(transports))
-
-	return transports[choice]
-}
-
-func addPsiphonFrontingHeader(
-	p parameters.ParametersAccessor,
-	frontingProviderID string,
-	tunnelProtocol string,
-	dialAddress string,
-	resolveParams *resolver.ResolveParameters) bool {
-
-	if frontingProviderID == "" {
-		return false
-	}
-
-	if resolveParams != nil &&
-		resolveParams.PreresolvedIPAddress != "" {
-		meekDialDomain, _, _ := net.SplitHostPort(dialAddress)
-		if resolveParams.PreresolvedDomain == meekDialDomain {
-			return false
-		}
-	}
-
-	return common.Contains(
-		p.LabeledTunnelProtocols(
-			parameters.AddFrontingProviderPsiphonFrontingHeader,
-			frontingProviderID),
-		tunnelProtocol)
-}
+			Seed: seed

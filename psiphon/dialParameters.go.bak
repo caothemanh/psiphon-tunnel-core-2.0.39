@@ -1664,6 +1664,7 @@ func MakeDialParameters(
 	dialCustomHeaders := makeDialCustomHeaders(config, p)
 
 	if protocol.TunnelProtocolUsesMeek(dialParams.TunnelProtocol) ||
+		protocol.TunnelProtocolUsesWebSocket(dialParams.TunnelProtocol) ||
 		dialParams.UpstreamProxyType == "http" ||
 		dialParams.ConjureAPIRegistration {
 
@@ -1960,6 +1961,7 @@ func (dialParams *DialParameters) GetWebSocketConfig(config *Config) *WebSocketC
 		SNIServerName: dialParams.MeekSNIServerName,
 		ResourcePath:  websocket.DerivePath(dialParams.ServerEntry.MeekObfuscatedKey),
 		UseTLS:        protocol.TunnelProtocolUsesWebSocketTLS(dialParams.TunnelProtocol),
+		UserAgent:     dialParams.UserAgent,
 		// SkipVerify: true, matching MeekConn/TLSTunnelConn -- see the
 		// detailed rationale in meekConn.go (search "Reasoning for #3").
 		// In short: verifying the TLS cert here buys nothing against an
