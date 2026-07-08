@@ -451,14 +451,8 @@ type sshServer struct {
 	oslSessionCacheMutex sync.Mutex
 	oslSessionCache      *cache.Cache
 
-	// authorizationSessionIDs tracks, for each verified authorization ID,
-	// the ordered (oldest-first) list of client session IDs currently
-	// holding that authorization active -- i.e. the "devices" concurrently
-	// using a single issued psiphonAuth token. See
-	// support.DeviceLimitsSet.GetLimit for how many concurrent sessions
-	// are permitted per authorization ID before the oldest is revoked.
 	authorizationSessionIDsMutex sync.Mutex
-	authorizationSessionIDs      map[string][]string
+	authorizationSessionIDs      map[string]string
 
 	meekServersMutex sync.Mutex
 	meekServers      []*MeekServer
@@ -613,7 +607,7 @@ func newSSHServer(
 		clients:                 make(map[string]*sshClient),
 		geoIPSessionCache:       geoIPSessionCache,
 		oslSessionCache:         oslSessionCache,
-		authorizationSessionIDs: make(map[string][]string),
+		authorizationSessionIDs: make(map[string]string),
 		obfuscatorSeedHistory:   obfuscator.NewSeedHistory(nil),
 		inproxyBrokerSessions:   inproxyBrokerSessions,
 	}
@@ -4352,58 +4346,37 @@ func (sshClient *sshClient) setHandshakeState(
 
 	sshClient.sshServer.authorizationSessionIDsMutex.Lock()
 	for _, authorizationID := range authorizationIDs {
+		sessionID, ok := sshClient.sshServer.authorizationSessionIDs[authorizationID]
+		if ok && sessionID != sshClient.sessionID {
 
-		sessionIDs := sshClient.sshServer.authorizationSessionIDs[authorizationID]
-
-		// Check if this session already holds the authorization (expected
-		// on reconnect with the same session ID; see comment above).
-		alreadyHeld := false
-		for _, sessionID := range sessionIDs {
-			if sessionID == sshClient.sessionID {
-				alreadyHeld = true
-				break
+			logFields := LogFields{
+				"duplicate_authorization_id": authorizationID,
 			}
-		}
 
-		if !alreadyHeld {
-			sessionIDs = append(sessionIDs, sshClient.sessionID)
+			// Log this using client, not peer, GeoIP data. In the case of
+			// in-proxy tunnel protocols, the client GeoIP fields will be None
+			// if a handshake does not complete. However, presense of a
+			// (duplicate) authorization implies that the handshake completed.
 
-			limit := sshClient.sshServer.support.DeviceLimitsSet.GetLimit(authorizationID)
-
-			// limit == 0 means unlimited concurrent devices for this
-			// authorization ID.
-			if limit > 0 {
-				for len(sessionIDs) > limit {
-
-					evictedSessionID := sessionIDs[0]
-					sessionIDs = sessionIDs[1:]
-
-					logFields := LogFields{
-						"duplicate_authorization_id": authorizationID,
-						"device_limit":               limit,
-					}
-
-					sshClient.getClientGeoIPData().SetClientLogFields(logFields)
-					evictedClientGeoIPData := sshClient.sshServer.getGeoIPSessionCache(evictedSessionID)
-					if evictedClientGeoIPData != sshClient.getClientGeoIPData() {
-						evictedClientGeoIPData.SetClientLogFieldsWithPrefix("duplicate_authorization_", logFields)
-					}
-
-					logIrregularTunnel(
-						sshClient.sshServer.support,
-						"", // tunnel protocol is not relevant to authorizations
-						0,
-						"", // GeoIP data is added above
-						errors.TraceNew("authorization device limit exceeded"),
-						logFields)
-
-					// Invoke asynchronously to avoid deadlocks.
-					go sshClient.sshServer.revokeClientAuthorizations(evictedSessionID)
-				}
+			sshClient.getClientGeoIPData().SetClientLogFields(logFields)
+			duplicateClientGeoIPData := sshClient.sshServer.getGeoIPSessionCache(sessionID)
+			if duplicateClientGeoIPData != sshClient.getClientGeoIPData() {
+				duplicateClientGeoIPData.SetClientLogFieldsWithPrefix("duplicate_authorization_", logFields)
 			}
-		}
 
-		sshClient.sshServer.authorizationSessionIDs[authorizationID] = sessionIDs
+			logIrregularTunnel(
+				sshClient.sshServer.support,
+				"", // tunnel protocol is not relevant to authorizations
+				0,
+				"", // GeoIP data is added above
+				errors.TraceNew("duplicate active authorization"),
+				logFields)
+
+			// Invoke asynchronously to avoid deadlocks.
+			// TODO: invoke only once for each distinct sessionID?
+			go sshClient.sshServer.revokeClientAuthorizations(sessionID)
+		}
+		sshClient.sshServer.authorizationSessionIDs[authorizationID] = sshClient.sessionID
 	}
 	sshClient.sshServer.authorizationSessionIDsMutex.Unlock()
 
@@ -4425,17 +4398,9 @@ func (sshClient *sshClient) setHandshakeState(
 		sshClient.releaseAuthorizations = func() {
 			sshClient.sshServer.authorizationSessionIDsMutex.Lock()
 			for _, authorizationID := range authorizationIDs {
-				sessionIDs := sshClient.sshServer.authorizationSessionIDs[authorizationID]
-				for i, sessionID := range sessionIDs {
-					if sessionID == sshClient.sessionID {
-						sessionIDs = append(sessionIDs[:i], sessionIDs[i+1:]...)
-						break
-					}
-				}
-				if len(sessionIDs) == 0 {
+				sessionID, ok := sshClient.sshServer.authorizationSessionIDs[authorizationID]
+				if ok && sessionID == sshClient.sessionID {
 					delete(sshClient.sshServer.authorizationSessionIDs, authorizationID)
-				} else {
-					sshClient.sshServer.authorizationSessionIDs[authorizationID] = sessionIDs
 				}
 			}
 			sshClient.sshServer.authorizationSessionIDsMutex.Unlock()
