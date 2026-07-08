@@ -109,7 +109,7 @@ func newConn(underlying net.Conn, isClient bool, br *bufio.Reader) *Conn {
 // fronting. resourcePath is the HTTP request path (servers should accept
 // a fixed, shared-secret-derived path rather than "/", to avoid trivial
 // fingerprinting -- see server-side Upgrade for the matching check).
-func ClientHandshake(conn net.Conn, hostHeader string, resourcePath string, userAgent string) (*Conn, error) {
+func ClientHandshake(conn net.Conn, hostHeader string, resourcePath string) (*Conn, error) {
 
 	keyBytes := make([]byte, 16)
 	if _, err := rand.Read(keyBytes); err != nil {
@@ -122,16 +122,8 @@ func ClientHandshake(conn net.Conn, hostHeader string, resourcePath string, user
 		"Upgrade: websocket\r\n" +
 		"Connection: Upgrade\r\n" +
 		"Sec-WebSocket-Key: " + key + "\r\n" +
-		"Sec-WebSocket-Version: 13\r\n"
-
-	// A missing User-Agent is itself a distinguishing/blockable fingerprint
-	// for some CDN edges' WAF rules, so send one whenever the caller has
-	// selected one (mirroring MeekConn's handling of dialParams.UserAgent).
-	if userAgent != "" {
-		request += "User-Agent: " + userAgent + "\r\n"
-	}
-
-	request += "\r\n"
+		"Sec-WebSocket-Version: 13\r\n" +
+		"\r\n"
 
 	if _, err := io.WriteString(conn, request); err != nil {
 		return nil, fmt.Errorf("websocket: write request: %w", err)

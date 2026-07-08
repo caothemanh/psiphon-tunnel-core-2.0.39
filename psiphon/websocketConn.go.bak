@@ -75,14 +75,6 @@ type WebSocketConfig struct {
 	// UseTLS selects WSS (true) vs WS (false).
 	UseTLS bool
 
-	// UserAgent is the HTTP User-Agent header value to send in the
-	// WebSocket opening handshake. As with MeekConfig, this should be
-	// left set (dialParams.UserAgent) rather than omitted: some CDN
-	// edges' WAFs treat a missing User-Agent on an otherwise-valid
-	// Upgrade request as anomalous and block it, independent of any
-	// region-based rule.
-	UserAgent string
-
 	// TLSProfile, VerifyServerName, VerifyPins, SkipVerify,
 	// NoDefaultTLSSessionID, RandomizedTLSProfileSeed,
 	// FragmentClientHello, ClientSessionCache: same meaning as the
@@ -161,7 +153,7 @@ func DialWebSocketTunnel(
 		resourcePath = "/"
 	}
 
-	wsConn, err := websocket.ClientHandshake(conn, config.HostHeader, resourcePath, config.UserAgent)
+	wsConn, err := websocket.ClientHandshake(conn, config.HostHeader, resourcePath)
 	if err != nil {
 		conn.Close()
 		return nil, errors.Trace(err)
