@@ -397,16 +397,6 @@ type Config struct {
 	// TrafficRulesSet, the traffic rules to apply to Psiphon client tunnels.
 	TrafficRulesFilename string `json:",omitempty"`
 
-	// AuthorizationDeviceLimitsFilename is the path of a file containing a
-	// JSON-encoded map of base64-encoded authorization ID to the maximum
-	// number of concurrent client sessions ("devices") permitted to have
-	// that authorization active at once. An authorization ID absent from
-	// the map falls back to DEFAULT_AUTHORIZATION_DEVICE_LIMIT (1); a
-	// value of 0 means unlimited devices for that authorization. Hot
-	// reloadable, same as TrafficRulesFilename. When omitted, every
-	// authorization is limited to DEFAULT_AUTHORIZATION_DEVICE_LIMIT.
-	AuthorizationDeviceLimitsFilename string `json:",omitempty"`
-
 	// OSLConfigFilename is the path of a file containing a JSON-encoded
 	// OSL Config, the OSL schemes to apply to Psiphon client tunnels.
 	OSLConfigFilename string `json:",omitempty"`
