@@ -120,6 +120,11 @@ jobs:
               print(repr(content[idx-10:idx+300]))
           PYEOF
 
+      - name: Debug - show real services.go content
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          sed -n '/type SupportServices struct/,/^}/p' psiphon/server/services.go
+
       - name: Apply device-limit patches (N thiết bị / token)
         run: |
           cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
@@ -136,4 +141,17 @@ jobs:
         with:
           name: psiphond-linux-amd64
           path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server/psiphond
+          retention-days: 7
+
+      - name: Build psiphon-authgen
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen
+          GOOS=linux GOARCH=amd64 go build -o psiphon-authgen .
+          ls -lh psiphon-authgen
+
+      - name: Upload psiphon-authgen
+        uses: actions/upload-artifact@v4
+        with:
+          name: psiphon-authgen-linux-amd64
+          path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen/psiphon-authgen
           retention-days: 7
