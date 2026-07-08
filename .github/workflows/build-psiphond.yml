@@ -120,6 +120,11 @@ jobs:
               print(repr(content[idx-10:idx+300]))
           PYEOF
 
+      - name: Apply device-limit patches (N thiết bị / token)
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          python3 patch_device_limits.py
+
       - name: Build psiphond
         run: |
           cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server
