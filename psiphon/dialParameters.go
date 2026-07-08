@@ -2634,4 +2634,105 @@ func makeOSSHPrefixSpecParameters(
 		return &obfuscator.OSSHPrefixSpec{
 			Name: name,
 			Spec: spec,
-			Seed: seed
+			Seed: seed,
+		}, nil
+	}
+}
+
+func makeOSSHPrefixSplitConfig(
+	p parameters.ParametersAccessor) (*obfuscator.OSSHPrefixSplitConfig, error) {
+
+	minDelay := p.Duration(parameters.OSSHPrefixSplitMinDelay)
+	maxDelay := p.Duration(parameters.OSSHPrefixSplitMaxDelay)
+
+	seed, err := prng.NewSeed()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &obfuscator.OSSHPrefixSplitConfig{
+		Seed:     seed,
+		MinDelay: minDelay,
+		MaxDelay: maxDelay,
+	}, nil
+}
+
+func makeShadowsocksPrefixSpecParameters(
+	p parameters.ParametersAccessor,
+	dialPortNumber string) (*ShadowsocksPrefixSpec, error) {
+
+	if !p.WeightedCoinFlip(parameters.ShadowsocksPrefixProbability) {
+		return &ShadowsocksPrefixSpec{}, nil
+	}
+
+	specs := p.ProtocolTransformSpecs(parameters.ShadowsocksPrefixSpecs)
+	scopedSpecNames := p.ProtocolTransformScopedSpecNames(parameters.ShadowsocksPrefixScopedSpecNames)
+
+	name, spec := specs.Select(dialPortNumber, scopedSpecNames)
+
+	if spec == nil {
+		return &ShadowsocksPrefixSpec{}, nil
+	} else {
+		seed, err := prng.NewSeed()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return &ShadowsocksPrefixSpec{
+			Name: name,
+			Spec: spec,
+			Seed: seed,
+		}, nil
+	}
+}
+
+func selectConjureTransport(
+	p parameters.ParametersAccessor) string {
+
+	limitConjureTransports := p.ConjureTransports(parameters.ConjureLimitTransports)
+
+	transports := make([]string, 0)
+
+	for _, transport := range protocol.SupportedConjureTransports {
+
+		if len(limitConjureTransports) > 0 &&
+			!common.Contains(limitConjureTransports, transport) {
+			continue
+		}
+
+		transports = append(transports, transport)
+	}
+
+	if len(transports) == 0 {
+		return ""
+	}
+
+	choice := prng.Intn(len(transports))
+
+	return transports[choice]
+}
+
+func addPsiphonFrontingHeader(
+	p parameters.ParametersAccessor,
+	frontingProviderID string,
+	tunnelProtocol string,
+	dialAddress string,
+	resolveParams *resolver.ResolveParameters) bool {
+
+	if frontingProviderID == "" {
+		return false
+	}
+
+	if resolveParams != nil &&
+		resolveParams.PreresolvedIPAddress != "" {
+		meekDialDomain, _, _ := net.SplitHostPort(dialAddress)
+		if resolveParams.PreresolvedDomain == meekDialDomain {
+			return false
+		}
+	}
+
+	return common.Contains(
+		p.LabeledTunnelProtocols(
+			parameters.AddFrontingProviderPsiphonFrontingHeader,
+			frontingProviderID),
+		tunnelProtocol)
+}
