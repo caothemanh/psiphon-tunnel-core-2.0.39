@@ -56,7 +56,10 @@ jobs:
               idx = content.find('TunnelProtocolUsesFrontedMeekNonHTTPS')
               print(repr(content[idx-10:idx+500]))
           PYEOF
-
+- name: Debug - show real services.go content
+        run: |
+          cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
+          sed -n '/type SupportServices struct/,/^}/p' psiphon/server/services.go
       - name: Patch tunnelServer.go - allow FRONTED-MEEK-HTTP-OSSH listener
         run: |
           cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core
