@@ -137,6 +137,19 @@ func DialWebSocketTunnel(
 			RandomizedTLSProfileSeed:      config.RandomizedTLSProfileSeed,
 			FragmentClientHello:           config.FragmentClientHello,
 			TrustedCACertificatesFilename: dialConfig.TrustedCACertificatesFilename,
+			// This transport writes a hand-rolled HTTP/1.1 request directly
+			// onto the TLS connection (see websocket.ClientHandshake) rather
+			// than going through net/http, which would otherwise negotiate
+			// and speak whichever protocol ALPN selects. Without this
+			// override, a TLS-terminating fronting intermediary (e.g.
+			// Cloudflare) that also offers HTTP/2 may select "h2" during
+			// ALPN -- since the TLS profile fingerprint (e.g. Chrome, which
+			// advertises ["h2", "http/1.1"]) offers it -- at which point our
+			// raw HTTP/1.1 text no longer matches the wire format the
+			// intermediary expects, and the handshake/request breaks. This
+			// has no effect dialing directly to psiphond, which never
+			// negotiates h2, so unfronted dials are unaffected either way.
+			NextProtos: []string{"http/1.1"},
 		}
 
 		tlsDialer := tlsdialer.NewDialer(tlsConfig)

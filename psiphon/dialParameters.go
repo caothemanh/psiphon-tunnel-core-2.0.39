@@ -873,6 +873,7 @@ func MakeDialParameters(
 
 	usingTLS := protocol.TunnelProtocolUsesMeekHTTPS(dialParams.TunnelProtocol) ||
 		protocol.TunnelProtocolUsesTLSOSSH(dialParams.TunnelProtocol) ||
+		protocol.TunnelProtocolUsesWebSocketTLS(dialParams.TunnelProtocol) ||
 		dialParams.ConjureAPIRegistration
 
 	// Note that ConjureAPIRegistartion is not wired to use the TLS session cache.
@@ -908,6 +909,7 @@ func MakeDialParameters(
 		requireTLS13Support := protocol.TunnelProtocolRequiresTLS13Support(dialParams.TunnelProtocol)
 
 		isFronted := protocol.TunnelProtocolUsesFrontedMeek(dialParams.TunnelProtocol) ||
+			protocol.TunnelProtocolUsesFrontedWebSocket(dialParams.TunnelProtocol) ||
 			dialParams.ConjureAPIRegistration
 
 		dialParams.TLSProfile,

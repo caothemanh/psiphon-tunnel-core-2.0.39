@@ -80,6 +80,27 @@ type Config struct {
 	// dial. Must not be nil.
 	Parameters *parameters.Parameters
 
+	// NextProtos, if non-empty, overrides the ALPN protocol list that would
+	// otherwise be baked into the selected uTLS ClientHelloID fingerprint
+	// (e.g. Chrome's ClientHello normally offers ["h2", "http/1.1"]).
+	//
+	// This exists for callers -- such as the WS/WSS-OSSH transport -- that
+	// speak a hand-rolled HTTP/1.1 wire format directly over the TLS
+	// connection (not via net/http's transport, which transparently
+	// handles whichever protocol ALPN negotiates). Without this override,
+	// a TLS-terminating intermediary (e.g. Cloudflare) that also offers
+	// HTTP/2 may select "h2" during ALPN, at which point writing raw
+	// HTTP/1.1 text onto the connection no longer matches the wire format
+	// the intermediary expects, breaking the handshake. Setting
+	// NextProtos: []string{"http/1.1"} guarantees an HTTP/1.1 wire format
+	// regardless of what the peer supports.
+	//
+	// Leave nil/empty to preserve the existing behavior (ALPN list taken
+	// from the fingerprinted ClientHelloID, unmodified) -- this is what
+	// MeekConn/TLSTunnelConn continue to do, since they use net/http and
+	// are protocol-agnostic.
+	NextProtos []string
+
 	// Dial is the network connection dialer. TLS is layered on top of a new
 	// network connection created with dialer. Must not be nil.
 	Dial common.Dialer
@@ -400,6 +421,7 @@ func Dial(
 		VerifyPeerCertificate:  tlsConfigVerifyPeerCertificate,
 		OmitEmptyPsk:           true,
 		AlwaysIncludePSK:       true,
+		NextProtos:             config.NextProtos,
 	}
 
 	var randomizedTLSProfileSeed *prng.Seed
@@ -459,6 +481,34 @@ func Dial(
 	}
 
 	conn := utls.UClient(underlyingConn, tlsConfig, utlsClientHelloID)
+
+	// When config.NextProtos is set, the ALPN protocol list must be forced
+	// even for preset (real browser) ClientHelloIDs, whose ALPN extension
+	// is otherwise a fixed value baked into the fingerprint and NOT read
+	// from tlsConfig.NextProtos. Preset profiles return a nil
+	// utlsClientHelloSpec here (the spec is resolved internally by utls
+	// from the ClientHelloID later), so there is normally nothing to patch
+	// before the handshake; fetch an explicit, mutable copy of the spec in
+	// that case so the override can be applied via ApplyPreset below.
+	if len(config.NextProtos) > 0 {
+
+		spec := utlsClientHelloSpec
+		if spec == nil {
+			builtSpec, specErr := utls.UTLSIdToSpec(utlsClientHelloID)
+			if specErr != nil {
+				return nil, errors.Trace(specErr)
+			}
+			spec = &builtSpec
+		}
+
+		for _, extension := range spec.Extensions {
+			if alpnExtension, ok := extension.(*utls.ALPNExtension); ok {
+				alpnExtension.AlpnProtocols = config.NextProtos
+			}
+		}
+
+		utlsClientHelloSpec = spec
+	}
 
 	if utlsClientHelloSpec != nil {
 		err := conn.ApplyPreset(utlsClientHelloSpec)
