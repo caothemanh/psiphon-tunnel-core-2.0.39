@@ -163,8 +163,16 @@ type Config struct {
 	// use the first IPv4 address.
 	ListenInterface string `json:",omitempty"`
 
-	// DisableLocalSocksProxy disables running the local SOCKS proxy.
+// DisableLocalSocksProxy disables running the local SOCKS proxy.
 	DisableLocalSocksProxy bool `json:",omitempty"`
+
+	// EnableSocksUDPAssociate causes the local SOCKS proxy to use an
+	// alternate listener that supports the SOCKS5 UDP ASSOCIATE command
+	// (RFC 1928), in addition to CONNECT. UDP datagrams are bridged to
+	// the Psiphon server's udpgw interception feature over the existing
+	// tunnel. Requires the server to have UDPInterceptUdpgwServerAddress
+	// configured. Has no effect if DisableLocalSocksProxy is set.
+	EnableSocksUDPAssociate bool `json:",omitempty"`
 
 	// LocalSocksProxyPort specifies a port number for the local SOCKS proxy
 	// running at 127.0.0.1. For the default value, 0, the system selects a

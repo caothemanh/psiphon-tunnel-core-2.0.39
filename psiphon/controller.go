@@ -439,12 +439,21 @@ func (controller *Controller) Run(ctx context.Context) {
 	if !controller.config.DisableTunnels {
 
 		if !controller.config.DisableLocalSocksProxy {
-			socksProxy, err := NewSocksProxy(controller.config, controller, listenIP)
-			if err != nil {
-				NoticeError("error initializing local SOCKS proxy: %v", errors.Trace(err))
-				return
+			if controller.config.EnableSocksUDPAssociate {
+				socksProxy, err := NewUDPAssociateSocksProxy(controller.config, controller, listenIP)
+				if err != nil {
+					NoticeError("error initializing local SOCKS proxy: %v", errors.Trace(err))
+					return
+				}
+				defer socksProxy.Close()
+			} else {
+				socksProxy, err := NewSocksProxy(controller.config, controller, listenIP)
+				if err != nil {
+					NoticeError("error initializing local SOCKS proxy: %v", errors.Trace(err))
+					return
+				}
+				defer socksProxy.Close()
 			}
-			defer socksProxy.Close()
 		}
 
 		if !controller.config.DisableLocalHTTPProxy {
