@@ -758,6 +758,20 @@ func SetFrontedMeekHTTPDialPortNumber(port int) {
 	atomic.StoreInt32(&frontedMeekHTTPSDialPortNumber, int32(port))
 }
 
+var frontedMeekHTTPPlainDialPortNumber = int32(80)
+
+// SetFrontedMeekPlainHTTPDialPortNumber sets the FRONTED-MEEK-HTTP-OSSH
+// dial port number, which defaults to 80. Previously this was hardcoded
+// with no override, so any deployment/test server listening for
+// FRONTED-MEEK-HTTP-OSSH on a port other than 80 was unreachable, since
+// the client always dialed port 80 regardless of the server entry's
+// actual configuration. Overriding the port number enables running test
+// servers, or fronting setups, where binding to port 80 is not possible
+// or not desired.
+func SetFrontedMeekPlainHTTPDialPortNumber(port int) {
+	atomic.StoreInt32(&frontedMeekHTTPPlainDialPortNumber, int32(port))
+}
+
 func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, error) {
 
 	if !serverEntry.SupportsProtocol(tunnelProtocol) {
@@ -797,7 +811,7 @@ func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, e
 			return int(atomic.LoadInt32(&frontedMeekHTTPSDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_FRONTED_MEEK_HTTP:
-			return 80, nil
+			return int(atomic.LoadInt32(&frontedMeekHTTPPlainDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_UNFRONTED_MEEK_HTTPS,
 			TUNNEL_PROTOCOL_UNFRONTED_MEEK_SESSION_TICKET,
@@ -858,7 +872,7 @@ func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, e
 			return int(atomic.LoadInt32(&frontedMeekHTTPSDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_FRONTED_MEEK_HTTP:
-			return 80, nil
+			return int(atomic.LoadInt32(&frontedMeekHTTPPlainDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_UNFRONTED_MEEK_HTTPS,
 			TUNNEL_PROTOCOL_UNFRONTED_MEEK_SESSION_TICKET,
