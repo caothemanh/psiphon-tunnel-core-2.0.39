@@ -74,6 +74,7 @@ type ServerEntry struct {
 	WebSocketTLSOSSHPort                int      `json:"webSocketTLSOSSHPort,omitempty"`
 	FrontedWebSocketOSSHPort            int      `json:"frontedWebSocketOSSHPort,omitempty"`
 	FrontedWebSocketTLSOSSHPort         int      `json:"frontedWebSocketTLSOSSHPort,omitempty"`
+	FrontedMeekOSSHPort                 int      `json:"frontedMeekOSSHPort,omitempty"`
 	MeekCookieEncryptionPublicKey       string   `json:"meekCookieEncryptionPublicKey,omitempty"`
 	MeekObfuscatedKey                   string   `json:"meekObfuscatedKey,omitempty"`
 	MeekFrontingHost                    string   `json:"meekFrontingHost,omitempty"`
@@ -808,6 +809,24 @@ func (serverEntry *ServerEntry) GetDialPortNumber(tunnelProtocol string) (int, e
 
 		case TUNNEL_PROTOCOL_FRONTED_MEEK,
 			TUNNEL_PROTOCOL_FRONTED_MEEK_QUIC_OBFUSCATED_SSH:
+			// Prefer the per-server-entry port, when the server entry
+			// carries one (FrontedMeekOSSHPort != 0). This allows a
+			// FRONTED-MEEK-OSSH deployment to run its origin listener on
+			// any port, with the client picking up the correct port from
+			// the server entry -- the same pattern already used for
+			// FRONTED-WS-OSSH/FRONTED-WSS-OSSH (FrontedWebSocketOSSHPort/
+			// FrontedWebSocketTLSOSSHPort).
+			//
+			// Fall back to the global frontedMeekHTTPSDialPortNumber
+			// (default 443) for older/legacy server entries that predate
+			// this field, and for the case where a real CDN front is
+			// used: in that case the client always dials the CDN's
+			// public HTTPS port (443), regardless of the origin's actual
+			// listening port, so FrontedMeekOSSHPort should be left unset
+			// (0) in the server entry for real fronted deployments.
+			if serverEntry.FrontedMeekOSSHPort != 0 {
+				return serverEntry.FrontedMeekOSSHPort, nil
+			}
 			return int(atomic.LoadInt32(&frontedMeekHTTPSDialPortNumber)), nil
 
 		case TUNNEL_PROTOCOL_FRONTED_MEEK_HTTP:

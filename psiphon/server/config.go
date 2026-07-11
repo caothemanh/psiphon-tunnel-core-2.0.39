@@ -1429,11 +1429,12 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 
 	// Limitations:
 	// - Only one meek port may be specified per server entry.
-	// - Neither fronted meek nor Conjuure protocols are supported here.
+	// - Conjure protocols are not supported here.
 
 	var sshPort, obfuscatedSSHPort, meekPort, obfuscatedSSHQUICPort, tlsOSSHPort, shadowsocksPort int
 	var webSocketOSSHPort, webSocketTLSOSSHPort int
 	var frontedWebSocketOSSHPort, frontedWebSocketTLSOSSHPort int
+	var frontedMeekOSSHPort int
 	var inproxySSHPort, inproxyOSSHPort, inproxyQUICPort, inproxyMeekPort, inproxyTlsOSSHPort, inproxyShadowsocksPort int
 
 	for tunnelProtocol, port := range params.TunnelProtocolPorts {
@@ -1460,6 +1461,18 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 				frontedWebSocketOSSHPort = port
 			case protocol.TUNNEL_PROTOCOL_FRONTED_WEBSOCKET_TLS_OSSH:
 				frontedWebSocketTLSOSSHPort = port
+			case protocol.TUNNEL_PROTOCOL_FRONTED_MEEK:
+				// Record the actual origin listening port so it can be
+				// written into the generated server entry's
+				// FrontedMeekOSSHPort field below. This is intended for
+				// no-CDN / direct-IP test deployments, where the client
+				// dials the origin IP directly and must use the same
+				// port the origin is actually listening on, which may
+				// not be 443. For a real CDN-fronted deployment, leave
+				// FrontedMeekOSSHPort unset (0) in the server entry, so
+				// the client falls back to dialing the CDN's public
+				// HTTPS port (443) instead -- see GetDialPortNumber.
+				frontedMeekOSSHPort = port
 			case protocol.TUNNEL_PROTOCOL_SHADOWSOCKS_OSSH:
 				shadowsocksPort = port
 			}
@@ -1511,6 +1524,7 @@ func GenerateConfig(params *GenerateConfigParams) ([]byte, []byte, []byte, []byt
 		WebSocketTLSOSSHPort:                webSocketTLSOSSHPort,
 		FrontedWebSocketOSSHPort:            frontedWebSocketOSSHPort,
 		FrontedWebSocketTLSOSSHPort:         frontedWebSocketTLSOSSHPort,
+		FrontedMeekOSSHPort:                 frontedMeekOSSHPort,
 		MeekCookieEncryptionPublicKey:       meekCookieEncryptionPublicKey,
 		MeekObfuscatedKey:                   meekObfuscatedKey,
 		MeekFrontingHosts:                   []string{params.ServerIPAddress},
