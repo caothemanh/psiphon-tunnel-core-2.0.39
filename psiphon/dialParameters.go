@@ -1604,7 +1604,25 @@ func MakeDialParameters(
 			dialParams.MeekSNIServerName = ""
 			dialParams.MeekTransformedHostName = false
 		} else if !dialParams.MeekTransformedHostName {
-			dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+			// FIX (2): on some CDN edges, sending SNI = MeekFrontingDialAddress
+			// (the borrowed CDN domain, e.g. a third party's own domain sharing
+			// the same CDN network) while Host = MeekFrontingHost (the real
+			// backend domain) is a mismatch the edge's WAF/routing layer can
+			// detect and block, even though plain FRONTED-WS (no TLS/SNI)
+			// over the same fronting config works fine. A working reference
+			// point (this server entry's own MeekFrontingHosts domain, used
+			// as SNI by another client over the same CDN IP) shows the CDN
+			// happily serves a valid cert for that domain when queried by
+			// its own name. So for WSS specifically, align SNI with the Host
+			// header (both = MeekFrontingHost) and only use
+			// MeekFrontingDialAddress to resolve which IP to dial -- this is
+			// no longer classic SNI!=Host fronting, but same-CDN-IP reuse,
+			// which this particular edge does not appear to block.
+			if isWebSocketTLS {
+				dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
+			} else {
+				dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+			}
 		}
 
 	case protocol.TUNNEL_PROTOCOL_UNFRONTED_WEBSOCKET_OSSH,
