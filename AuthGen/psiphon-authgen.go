@@ -80,14 +80,20 @@ func issue(args []string) {
 		fail("IssueAuthorization failed: %s", err)
 	}
 
-	// Print token + the base64 authorization ID (same encoding psiphond
-	// uses internally, base64.StdEncoding.EncodeToString(ID)) as JSON so
-	// the caller can key a per-authorization device limit against it.
+	// Print the token + the base64 authorization ID (same encoding
+	// psiphond uses internally, base64.StdEncoding.EncodeToString(ID))
+	// as JSON, so the caller can key a per-authorization device limit
+	// against it.
+	//
+	// "authorizations" is a JSON ARRAY (["<token>"]), matching the exact
+	// shape the Psiphon client config's "Authorizations" field expects
+	// (a list of base64 tokens, not a bare string). This lets you paste
+	// the value straight into the client config with no reformatting.
 	out := struct {
-		Token           string `json:"token"`
-		AuthorizationID string `json:"authorizationId"`
+		Authorizations  []string `json:"authorizations"`
+		AuthorizationID string   `json:"authorizationId"`
 	}{
-		Token:           token,
+		Authorizations:  []string{token},
 		AuthorizationID: base64.StdEncoding.EncodeToString(authID),
 	}
 	outJSON, err := json.Marshal(out)
