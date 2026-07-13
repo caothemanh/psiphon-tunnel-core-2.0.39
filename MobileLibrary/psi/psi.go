@@ -464,6 +464,32 @@ func ImportPushPayload(payload []byte) bool {
 	return controller.ImportPushPayload(payload)
 }
 
+// DeleteDialParameters deletes any persisted dial parameters cached for
+// the specified server, on the specified network.
+//
+// This is useful when the host app switches tunnel protocol manually
+// (e.g., WS -> WSS) while targeting the SAME server: tunnel-core's dial
+// parameters replay mechanism may otherwise reuse a dial parameter set
+// built for the previous protocol (e.g., stale TLS/ALPN settings),
+// causing the newly selected protocol to fail to connect until the
+// stale cache is invalidated. Call this before starting a tunnel with a
+// different protocol than the last successful connection to the same
+// server.
+//
+// DeleteDialParameters only has an effect while Psiphon is running,
+// between Start and Stop, as it requires the datastore to be open.
+func DeleteDialParameters(serverIPAddress, networkID string) error {
+
+	controllerMutex.Lock()
+	defer controllerMutex.Unlock()
+
+	if controller == nil {
+		return errors.TraceNew("not started")
+	}
+
+	return psiphon.DeleteDialParameters(serverIPAddress, networkID)
+}
+
 var sendFeedbackMutex sync.Mutex
 var sendFeedbackCtx context.Context
 var stopSendFeedback context.CancelFunc

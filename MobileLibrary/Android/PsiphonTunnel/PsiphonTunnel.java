@@ -325,6 +325,18 @@ public class PsiphonTunnel {
         Psi.writeRuntimeProfiles(outputDirectory, cpuSampleDurationSeconds, blockSampleDurationSeconds);
     }
 
+    // Deletes any persisted dial parameters cached for the specified server,
+    // on the specified network. Use this when the host app switches tunnel
+    // protocol manually (e.g., WS -> WSS) while targeting the SAME server,
+    // to avoid tunnel-core replaying a stale, incompatible dial parameter
+    // set (e.g., wrong TLS/ALPN settings) built for the previous protocol.
+    //
+    // Only has an effect while Psiphon is running, between start and stop,
+    // as it requires the datastore to be open.
+    public void deleteDialParameters(String serverIPAddress, String networkID) throws java.lang.Exception {
+        Psi.deleteDialParameters(serverIPAddress, networkID);
+    }
+
     // The interface for managing the Psiphon feedback upload operations.
     // Warnings:
     // - Should not be used in the same process as PsiphonTunnel.
