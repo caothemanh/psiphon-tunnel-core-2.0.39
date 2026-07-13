@@ -1619,9 +1619,11 @@ func MakeDialParameters(
 			// no longer classic SNI!=Host fronting, but same-CDN-IP reuse,
 			// which this particular edge does not appear to block.
 			if isWebSocketTLS {
-				dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
+			    dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+				//dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
 			} else {
-				dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+			    dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
+				//dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
 			}
 		}
 
