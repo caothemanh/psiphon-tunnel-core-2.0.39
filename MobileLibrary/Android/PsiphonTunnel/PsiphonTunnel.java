@@ -325,6 +325,13 @@ public class PsiphonTunnel {
         Psi.writeRuntimeProfiles(outputDirectory, cpuSampleDurationSeconds, blockSampleDurationSeconds);
     }
 
+    // Returns the network ID for the currently active network, computed the
+    // same way PsiphonTunnel does internally for tunnel-core. Exposed so
+    // callers can pass a matching networkID to deleteDialParameters().
+    public String getNetworkID() {
+        return getNetworkID(mHostService.getContext(), isVpnMode());
+    }
+
     // Deletes any persisted dial parameters cached for the specified server,
     // on the specified network. Use this when the host app switches tunnel
     // protocol manually (e.g., WS -> WSS) while targeting the SAME server,
