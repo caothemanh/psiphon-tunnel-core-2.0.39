@@ -52,6 +52,7 @@ func main() {
 	var configFilename string
 	var generateServerIPaddress string
 	var generateServerNetworkInterface string
+	var generateServerRegion string
 	var generateProtocolPorts stringListFlag
 	var generateWebServerPort int
 	var generateLogFilename string
@@ -77,6 +78,12 @@ func main() {
 		"interface",
 		"",
 		"generate with server IP address from this `network-interface`")
+
+	flag.StringVar(
+		&generateServerRegion,
+		"region",
+		"",
+		"generate with this server `region` (2-letter country code, e.g. US, VN); blank omits the field from the server entry")
 
 	flag.Var(
 		&generateProtocolPorts,
@@ -172,6 +179,7 @@ func main() {
 				&server.GenerateConfigParams{
 					LogFilename:                generateLogFilename,
 					ServerIPAddress:            serverIPaddress,
+					Region:                     generateServerRegion,
 					TunnelProtocolPorts:        tunnelProtocolPorts,
 					TrafficRulesConfigFilename: generateTrafficRulesConfigFilename,
 					OSLConfigFilename:          generateOSLConfigFilename,
