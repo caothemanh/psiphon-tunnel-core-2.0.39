@@ -23,10 +23,9 @@ import (
 	"context"
 	"net"
 
+	tls "github.com/Psiphon-Labs/psiphon-tls"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/errors"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/parameters"
-	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/prng"
-	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/tlsdialer"
 	"github.com/Psiphon-Labs/psiphon-tunnel-core/psiphon/common/websocket"
 )
 
@@ -83,17 +82,31 @@ type WebSocketConfig struct {
 	// region-based rule.
 	UserAgent string
 
-	// TLSProfile, VerifyServerName, VerifyPins, SkipVerify,
-	// NoDefaultTLSSessionID, RandomizedTLSProfileSeed,
-	// FragmentClientHello, ClientSessionCache: same meaning as the
-	// identically named tlsdialer.Config / TLSTunnelConfig fields. Only
-	// used when UseTLS is true.
-	TLSProfile               string
-	VerifyServerName         string
-	SkipVerify               bool
-	NoDefaultTLSSessionID    bool
-	RandomizedTLSProfileSeed *prng.Seed
-	FragmentClientHello      bool
+	// SkipVerify: same meaning as TLSTunnelConfig.TLSConfig.SkipVerify.
+	// Only used when UseTLS is true.
+	//
+	// FIX: this transport deliberately does NOT use tlsdialer/uTLS
+	// browser-impersonation profiles (TLSProfile, RandomizedTLSProfileSeed,
+	// FragmentClientHello, etc., as TLS-OSSH and MEEK use). Those profiles
+	// bake in a specific real browser's ClientHello fingerprint (Chrome,
+	// Firefox, Safari...), but this transport also needs to force ALPN
+	// down to ["http/1.1"] only (see below), since it speaks a hand-rolled
+	// HTTP/1.1 request directly on the TLS connection rather than going
+	// through net/http. Combining "impersonate Chrome" with "but only
+	// offer http/1.1 in ALPN" produces a ClientHello no real Chrome ever
+	// sends (real browsers always include "h2" too) -- a self-inconsistent,
+	// "broken disguise" fingerprint that is a stronger bot/automation
+	// signal to CDN TLS fingerprinting (JA3/JA4) than an honest,
+	// non-impersonating TLS client, and was observed to cause slow/
+	// challenge/retry connection behavior specifically on this transport
+	// (not on TLS-OSSH/MEEK, which don't force ALPN, and not on plain WS,
+	// which has no TLS layer at all). Xray-core's VLESS+WS+TLS avoids this
+	// same trap by not setting an uTLS "fingerprint" at all for this kind
+	// of transport -- it dials with a plain/standard TLS stack and simply
+	// strips "h2" from ALPN, which is self-consistent. This dial follows
+	// that same approach: plain psiphon-tls (no uTLS), ALPN fixed to
+	// ["http/1.1"] from the start.
+	SkipVerify bool
 }
 
 // WebSocketTunnelConn is a network connection that tunnels net.Conn flows
@@ -125,40 +138,31 @@ func DialWebSocketTunnel(
 
 	if config.UseTLS {
 
-		tlsConfig := &tlsdialer.Config{
-			Parameters:                    config.Parameters,
-			Dial:                          NewTCPDialer(dialConfig),
-			DialAddr:                      config.DialAddress,
-			SNIServerName:                 config.SNIServerName,
-			VerifyServerName:              config.VerifyServerName,
-			SkipVerify:                    config.SkipVerify,
-			TLSProfile:                    config.TLSProfile,
-			NoDefaultTLSSessionID:         &config.NoDefaultTLSSessionID,
-			RandomizedTLSProfileSeed:      config.RandomizedTLSProfileSeed,
-			FragmentClientHello:           config.FragmentClientHello,
-			TrustedCACertificatesFilename: dialConfig.TrustedCACertificatesFilename,
-			// This transport writes a hand-rolled HTTP/1.1 request directly
-			// onto the TLS connection (see websocket.ClientHandshake) rather
-			// than going through net/http, which would otherwise negotiate
-			// and speak whichever protocol ALPN selects. Without this
-			// override, a TLS-terminating fronting intermediary (e.g.
-			// Cloudflare) that also offers HTTP/2 may select "h2" during
-			// ALPN -- since the TLS profile fingerprint (e.g. Chrome, which
-			// advertises ["h2", "http/1.1"]) offers it -- at which point our
-			// raw HTTP/1.1 text no longer matches the wire format the
-			// intermediary expects, and the handshake/request breaks. This
-			// has no effect dialing directly to psiphond, which never
-			// negotiates h2, so unfronted dials are unaffected either way.
+		// Dial the raw TCP connection ourselves (instead of handing a
+		// DialAddr to tlsdialer) since we're no longer using tlsdialer's
+		// uTLS-based ClientHello construction for this transport -- see
+		// the FIX comment on WebSocketConfig.SkipVerify above for why.
+		tcpDialer := NewTCPDialer(dialConfig)
+		rawConn, dialErr := tcpDialer(ctx, "tcp", config.DialAddress)
+		if dialErr != nil {
+			return nil, errors.Trace(dialErr)
+		}
+
+		tlsConfig := &tls.Config{
+			ServerName:         config.SNIServerName,
+			InsecureSkipVerify: config.SkipVerify,
+			// Fixed from ["http/1.1"] only, from the start of the
+			// handshake -- not patched onto a browser-impersonation
+			// fingerprint after the fact. See the FIX comment above.
 			NextProtos: []string{"http/1.1"},
 		}
 
-		tlsDialer := tlsdialer.NewDialer(tlsConfig)
-
-		// DialAddr is set in tlsConfig, so no address is required here.
-		conn, err = tlsDialer(ctx, "tcp", "")
-		if err != nil {
+		tlsConn := tls.Client(rawConn, tlsConfig)
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			rawConn.Close()
 			return nil, errors.Trace(err)
 		}
+		conn = tlsConn
 
 	} else {
 

@@ -1619,11 +1619,9 @@ func MakeDialParameters(
 			// no longer classic SNI!=Host fronting, but same-CDN-IP reuse,
 			// which this particular edge does not appear to block.
 			if isWebSocketTLS {
-			    dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
-				//dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
+				dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
 			} else {
-			    dialParams.MeekSNIServerName = dialParams.MeekFrontingHost
-				//dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
+				dialParams.MeekSNIServerName = dialParams.MeekFrontingDialAddress
 			}
 		}
 
@@ -2012,10 +2010,13 @@ func (dialParams *DialParameters) GetWebSocketConfig(config *Config) *WebSocketC
 		// active MiM (the client would just refuse to connect, which is
 		// also a failure), while confidentiality/integrity already comes
 		// from the SSH layer underneath, not from this TLS layer.
-		SkipVerify:               true,
-		TLSProfile:               dialParams.TLSProfile,
-		NoDefaultTLSSessionID:    dialParams.NoDefaultTLSSessionID,
-		RandomizedTLSProfileSeed: dialParams.RandomizedTLSProfileSeed,
+		//
+		// Note: unlike GetTLSOSSHConfig/GetMeekConfig, no TLSProfile /
+		// RandomizedTLSProfileSeed / NoDefaultTLSSessionID /
+		// FragmentClientHello here -- this transport intentionally does
+		// not use uTLS browser impersonation. See the FIX comment on
+		// WebSocketConfig.SkipVerify in websocketConn.go for why.
+		SkipVerify: true,
 	}
 }
 
