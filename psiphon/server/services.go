@@ -633,8 +633,8 @@ type SupportServices struct {
 	// of this package.
 	Config                       *Config
 	TrafficRulesSet              *TrafficRulesSet
-	RevokedAuthorizationsSet     *RevokedAuthorizationsSet
 	OSLConfig                    *osl.Config
+	RevokedAuthorizationsSet     *RevokedAuthorizationsSet
 	PsinetDatabase               *psinet.Database
 	GeoIPService                 *GeoIPService
 	DNSResolver                  *DNSResolver
@@ -658,12 +658,12 @@ func NewSupportServices(config *Config) (*SupportServices, error) {
 		return nil, errors.Trace(err)
 	}
 
-	revokedAuthorizationsSet, err := NewRevokedAuthorizationsSet(config.RevokedAuthorizationsFilename)
+	oslConfig, err := osl.NewConfig(config.OSLConfigFilename)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	oslConfig, err := osl.NewConfig(config.OSLConfigFilename)
+	revokedAuthorizationsSet, err := NewRevokedAuthorizationsSet(config.RevokedAuthorizationsFilename)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -703,13 +703,13 @@ func NewSupportServices(config *Config) (*SupportServices, error) {
 	support := &SupportServices{
 		Config:                   config,
 		TrafficRulesSet:          trafficRulesSet,
-		RevokedAuthorizationsSet: revokedAuthorizationsSet,
 		OSLConfig:                oslConfig,
-		PsinetDatabase:           psinetDatabase,
-		GeoIPService:             geoIPService,
-		DNSResolver:              dnsResolver,
-		TacticsServer:            tacticsServer,
-		Blocklist:                blocklist,
+		RevokedAuthorizationsSet: revokedAuthorizationsSet,
+		PsinetDatabase:  psinetDatabase,
+		GeoIPService:    geoIPService,
+		DNSResolver:     dnsResolver,
+		TacticsServer:   tacticsServer,
+		Blocklist:       blocklist,
 	}
 
 	support.ReplayCache = NewReplayCache(support)
@@ -796,6 +796,17 @@ func (support *SupportServices) Reload() {
 	// the discovery strategy tactic has changed, then discovery will be reloaded
 	// twice.
 
+	// reloadRevokedAuthorizations immediately downgrades any currently
+	// connected client session holding a newly-revoked authorization, by
+	// reusing the existing revokeClientAuthorizations mechanism (same one
+	// used for the "duplicate active authorization" case). This does not
+	// disconnect the underlying tunnel; it re-applies traffic rules as if
+	// the authorization had never been presented.
+	//
+	// Depends on patch_device_limits.py having already changed
+	// sshServer.authorizationSessionIDs from map[string]string to
+	// map[string][]string (multiple concurrent devices per authorization
+	// ID) -- this patch must be applied AFTER patch_device_limits.py.
 	reloadRevokedAuthorizations := func() {
 		if support.TunnelServer == nil || support.TunnelServer.sshServer == nil {
 			return
@@ -805,14 +816,13 @@ func (support *SupportServices) Reload() {
 		sshServer.authorizationSessionIDsMutex.Lock()
 		sessionIDsToRevoke := make([]string, 0)
 		for authorizationID := range support.RevokedAuthorizationsSet.Revoked {
-			if sessionID, ok := sshServer.authorizationSessionIDs[authorizationID]; ok {
-				sessionIDsToRevoke = append(sessionIDsToRevoke, sessionID)
-			}
+			sessionIDsToRevoke = append(
+				sessionIDsToRevoke, sshServer.authorizationSessionIDs[authorizationID]...)
 		}
 		sshServer.authorizationSessionIDsMutex.Unlock()
 
 		// Invoke asynchronously, same as the existing duplicate-authorization
-		// case above, to avoid holding locks across this call.
+		// case, to avoid holding locks across this call.
 		for _, sessionID := range sessionIDsToRevoke {
 			go sshServer.revokeClientAuthorizations(sessionID)
 		}
