@@ -4313,6 +4313,12 @@ func (sshClient *sshClient) setHandshakeState(
 
 		authorizationID := base64.StdEncoding.EncodeToString(verifiedAuthorization.ID)
 
+		if sshClient.sshServer.support.RevokedAuthorizationsSet.IsRevoked(authorizationID) {
+			log.WithTraceFields(
+				LogFields{"authorizationID": authorizationID}).Warning("revoked authorization")
+			continue
+		}
+
 		if common.Contains(authorizedAccessTypes, verifiedAuthorization.AccessType) {
 			log.WithTraceFields(
 				LogFields{"accessType": verifiedAuthorization.AccessType}).Warning("duplicate authorization access type")

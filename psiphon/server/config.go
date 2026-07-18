@@ -397,6 +397,12 @@ type Config struct {
 	// TrafficRulesSet, the traffic rules to apply to Psiphon client tunnels.
 	TrafficRulesFilename string `json:",omitempty"`
 
+	// RevokedAuthorizationsFilename is the path of a file containing a
+	// JSON array of base64-encoded authorization IDs to treat as revoked.
+	// See RevokedAuthorizationsSet. Empty/unset disables individual
+	// authorization revocation (the previous behavior).
+	RevokedAuthorizationsFilename string `json:",omitempty"`
+
 	// OSLConfigFilename is the path of a file containing a JSON-encoded
 	// OSL Config, the OSL schemes to apply to Psiphon client tunnels.
 	OSLConfigFilename string `json:",omitempty"`

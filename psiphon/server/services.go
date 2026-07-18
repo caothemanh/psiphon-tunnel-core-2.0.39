@@ -633,6 +633,7 @@ type SupportServices struct {
 	// of this package.
 	Config                       *Config
 	TrafficRulesSet              *TrafficRulesSet
+	RevokedAuthorizationsSet     *RevokedAuthorizationsSet
 	OSLConfig                    *osl.Config
 	PsinetDatabase               *psinet.Database
 	GeoIPService                 *GeoIPService
@@ -653,6 +654,11 @@ type SupportServices struct {
 func NewSupportServices(config *Config) (*SupportServices, error) {
 
 	trafficRulesSet, err := NewTrafficRulesSet(config.TrafficRulesFilename)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	revokedAuthorizationsSet, err := NewRevokedAuthorizationsSet(config.RevokedAuthorizationsFilename)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -695,14 +701,15 @@ func NewSupportServices(config *Config) (*SupportServices, error) {
 	}
 
 	support := &SupportServices{
-		Config:          config,
-		TrafficRulesSet: trafficRulesSet,
-		OSLConfig:       oslConfig,
-		PsinetDatabase:  psinetDatabase,
-		GeoIPService:    geoIPService,
-		DNSResolver:     dnsResolver,
-		TacticsServer:   tacticsServer,
-		Blocklist:       blocklist,
+		Config:                   config,
+		TrafficRulesSet:          trafficRulesSet,
+		RevokedAuthorizationsSet: revokedAuthorizationsSet,
+		OSLConfig:                oslConfig,
+		PsinetDatabase:           psinetDatabase,
+		GeoIPService:             geoIPService,
+		DNSResolver:              dnsResolver,
+		TacticsServer:            tacticsServer,
+		Blocklist:                blocklist,
 	}
 
 	support.ReplayCache = NewReplayCache(support)
@@ -721,6 +728,7 @@ func (support *SupportServices) Reload() {
 	reloaders := append(
 		[]common.Reloader{
 			support.TrafficRulesSet,
+			support.RevokedAuthorizationsSet,
 			support.OSLConfig,
 			support.PsinetDatabase,
 			support.TacticsServer,
@@ -787,11 +795,35 @@ func (support *SupportServices) Reload() {
 	// Note: if both tactics and psinet are reloaded at the same time and
 	// the discovery strategy tactic has changed, then discovery will be reloaded
 	// twice.
+
+	reloadRevokedAuthorizations := func() {
+		if support.TunnelServer == nil || support.TunnelServer.sshServer == nil {
+			return
+		}
+		sshServer := support.TunnelServer.sshServer
+
+		sshServer.authorizationSessionIDsMutex.Lock()
+		sessionIDsToRevoke := make([]string, 0)
+		for authorizationID := range support.RevokedAuthorizationsSet.Revoked {
+			if sessionID, ok := sshServer.authorizationSessionIDs[authorizationID]; ok {
+				sessionIDsToRevoke = append(sessionIDsToRevoke, sessionID)
+			}
+		}
+		sshServer.authorizationSessionIDsMutex.Unlock()
+
+		// Invoke asynchronously, same as the existing duplicate-authorization
+		// case above, to avoid holding locks across this call.
+		for _, sessionID := range sessionIDsToRevoke {
+			go sshServer.revokeClientAuthorizations(sessionID)
+		}
+	}
+
 	reloadPostActions := map[common.Reloader]func(){
-		support.TrafficRulesSet: func() { support.TunnelServer.ResetAllClientTrafficRules() },
-		support.OSLConfig:       func() { support.TunnelServer.ResetAllClientOSLConfigs() },
-		support.TacticsServer:   reloadTactics,
-		support.PsinetDatabase:  func() { reloadDiscovery(false) },
+		support.TrafficRulesSet:          func() { support.TunnelServer.ResetAllClientTrafficRules() },
+		support.RevokedAuthorizationsSet: reloadRevokedAuthorizations,
+		support.OSLConfig:                func() { support.TunnelServer.ResetAllClientOSLConfigs() },
+		support.TacticsServer:            reloadTactics,
+		support.PsinetDatabase:           func() { reloadDiscovery(false) },
 	}
 
 	for _, reloader := range reloaders {

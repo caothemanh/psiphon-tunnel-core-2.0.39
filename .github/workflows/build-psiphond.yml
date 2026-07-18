@@ -7,6 +7,18 @@ jobs:
   build_psiphond:
     runs-on: ubuntu-latest
 
+    strategy:
+      # Build song song cả amd64 (VPS thường) và arm64 (board Armbian/
+      # Raspberry Pi/Orange Pi...) trong cùng 1 lần chạy workflow. Mỗi
+      # nhánh matrix chạy job độc lập từ đầu (checkout + patch + build
+      # riêng), không ảnh hưởng lẫn nhau.
+      matrix:
+        include:
+          - goarch: amd64
+            suffix: amd64
+          - goarch: arm64
+            suffix: arm64
+
     env:
       GOVERSION: "1.26.3"
       GOPATH: ${{ github.workspace }}/go
@@ -133,25 +145,27 @@ jobs:
       - name: Build psiphond
         run: |
           cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server
-          GOOS=linux GOARCH=amd64 go build -o psiphond .
+          GOOS=linux GOARCH=${{ matrix.goarch }} go build -o psiphond .
           ls -lh psiphond
+          file psiphond
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: psiphond-linux-amd64
+          name: psiphond-linux-${{ matrix.suffix }}
           path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/Server/psiphond
           retention-days: 7
 
       - name: Build psiphon-authgen
         run: |
           cd go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen
-          GOOS=linux GOARCH=amd64 go build -o psiphon-authgen .
+          GOOS=linux GOARCH=${{ matrix.goarch }} go build -o psiphon-authgen .
           ls -lh psiphon-authgen
+          file psiphon-authgen
 
       - name: Upload psiphon-authgen
         uses: actions/upload-artifact@v4
         with:
-          name: psiphon-authgen-linux-amd64
+          name: psiphon-authgen-linux-${{ matrix.suffix }}
           path: go/src/github.com/Psiphon-Labs/psiphon-tunnel-core/AuthGen/psiphon-authgen
           retention-days: 7
