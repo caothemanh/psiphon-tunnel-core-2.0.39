@@ -162,8 +162,17 @@ func (server *TunnelServer) Run() error {
 
 	for tunnelProtocol, listenPort := range support.Config.TunnelProtocolPorts {
 
+		// Bind "0.0.0.0" (mọi interface) thay vì đúng ServerIPAddress -
+		// giống cách V2Ray/Xray làm mặc định. ServerIPAddress (IP public)
+		// vẫn được dùng để QUẢNG BÁ trong server entry (client cần biết
+		// địa chỉ để kết nối), nhưng KHÔNG còn bắt buộc trùng khớp với
+		// địa chỉ IP thật trên network interface của máy chạy psiphond -
+		// xoá hẳn nhu cầu cấu hình BIND_IP/NAT thủ công (xem
+		// psiphon-panel.sh) cho các máy chạy sau NAT/router (VD board tại
+		// nhà), vốn trước đây sẽ bind fail với lỗi
+		// "cannot assign requested address" nếu dùng thẳng ServerIPAddress.
 		localAddress := net.JoinHostPort(
-			support.Config.ServerIPAddress, strconv.Itoa(listenPort))
+			"0.0.0.0", strconv.Itoa(listenPort))
 
 		var listener net.Listener
 		var BPFProgramName string
